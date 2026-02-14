@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild:*)",
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)",
+      "Bash(sips:*)",
+      "Bash(sips -z 512 512:*)"
+    ]
+  }
+}

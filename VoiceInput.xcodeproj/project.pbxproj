@@ -404,6 +404,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "我們需要使用您的麥克風來進行語音轉文字 (We need access to your microphone for speech-to-text).";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "我們需要使用語音識別功能 (We need speech recognition capabilities).";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -436,6 +438,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "我們需要使用您的麥克風來進行語音轉文字 (We need access to your microphone for speech-to-text).";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "我們需要使用語音識別功能 (We need speech recognition capabilities).";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

@@ -10,23 +10,22 @@ import SwiftData
 
 @main
 struct VoiceInputApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @StateObject private var viewModel = VoiceInputViewModel()
 
     var body: some Scene {
-        WindowGroup {
+        MenuBarExtra("VoiceInput", systemImage: viewModel.isRecording ? "waveform.circle.fill" : "mic.fill") {
             ContentView()
+                .environmentObject(viewModel)
+                .task {
+                    // 使用 task 取代 onAppear，確保在視圖渲染前就設定 ViewModel
+                    WindowManager.shared.viewModel = viewModel
+                }
         }
-        .modelContainer(sharedModelContainer)
+        .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView()
+                .environmentObject(viewModel)
+        }
     }
 }
