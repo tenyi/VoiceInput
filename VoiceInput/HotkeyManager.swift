@@ -19,7 +19,7 @@ enum HotkeyOption: String, CaseIterable {
         }
     }
 
-    /// 修飾鍵的 scancode (使用 CGEvent 获取)
+    /// 修飾鍵的 scancode
     var scancode: UInt16 {
         switch self {
         case .leftCommand: return 0x37  // 55 - Left Command
@@ -27,15 +27,6 @@ enum HotkeyOption: String, CaseIterable {
         case .leftOption: return 0x3B   // 59 - Left Option
         case .rightOption: return 0x3C  // 60 - Right Option
         case .fn: return 0x3F            // 63 - Fn
-        }
-    }
-
-    /// 對應的 CGEventFlag
-    var eventFlag: CGEventFlags {
-        switch self {
-        case .leftCommand, .rightCommand: return .maskCommand
-        case .leftOption, .rightOption: return .maskAlternate
-        case .fn: return .maskShift  // Fn 沒有對應的 flag，需要特殊處理
         }
     }
 }
@@ -51,15 +42,15 @@ class HotkeyManager {
     /// 當快捷鍵被放開時的閉包（停止錄音，開始轉寫）
     var onHotkeyReleased: (() -> Void)?
 
-    /// 監控鍵盤事件的監聽器
-    private var eventMonitor: Any?
-    private var flagsMonitor: Any?
-
     /// 目前設定的快捷鍵選項
     private(set) var currentHotkey: HotkeyOption = .rightCommand
 
     /// 追蹤目標鍵是否正在被按下
     private var isTargetKeyDown = false
+
+    /// Event tap
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
 
     private init() {}
 
@@ -71,78 +62,89 @@ class HotkeyManager {
         }
     }
 
-    /// 開始監聽快捷鍵
+    /// 開始監聽快捷鍵（使用 CGEventTap，需要輔助功能權限）
     func startMonitoring() {
         stopMonitoring()
 
         let targetHotkey = currentHotkey
 
-        // 使用 CGEventTap 監聽鍵盤事件，這可以獲取準確的 scancode
-        // 設置事件 tap 回調
+        // 設置事件過濾 mask
         let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
 
-        // 建立一個回調來處理事件
+        // 回調函數
+        // 回調函數（listenOnly 模式下回傳值會被忽略）
         let callback: CGEventTapCallBack = { proxy, type, event, refcon in
-            guard let refcon = refcon else { return Unmanaged.passRetained(event) }
+            guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
             let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
             manager.handleEvent(proxy: proxy, type: type, event: event)
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         let refcon = Unmanaged.passUnretained(self).toOpaque()
 
-        // 建立 event tap
-        guard let eventTap = CGEvent.tapCreate(
+        // 創建 event tap
+        guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: .listenOnly,
             eventsOfInterest: eventMask,
             callback: callback,
             userInfo: refcon
         ) else {
-            // 如果無法創建 event tap，回退到使用 NSEvent 監控
-            setupFallbackMonitoring(targetHotkey: targetHotkey)
+            print("無法創建 CGEventTap，請確認已授予輔助功能權限")
             return
         }
 
-        // 啟用 event tap
-        let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        eventTap = tap
+
+        // 添加到 run loop
+        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: eventTap, enable: true)
+        CGEvent.tapEnable(tap: tap, enable: true)
     }
 
-    /// 回退方案：使用 NSEvent 監控（當 CGEventTap 失敗時）
-    private func setupFallbackMonitoring(targetHotkey: HotkeyOption) {
-        flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.handleFlagsChanged(event: event, targetHotkey: targetHotkey)
-        }
-
-        let localMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.handleFlagsChanged(event: event, targetHotkey: targetHotkey)
-            return event
-        }
-        self.eventMonitor = localMonitor
-    }
-
-    /// 處理 CGEventTap 回調的事件
+    /// 處理事件
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+        // 修飾鍵只會觸發 .flagsChanged 事件，不會觸發 .keyDown / .keyUp
+        // 因此必須透過 event.flags 來判斷修飾鍵是按下還是放開
 
         // 檢查是否是目標鍵
         let isTargetKey: Bool
 
-        if currentHotkey == .fn {
-            // Fn 鍵需要通過 flagsChanged 來檢測
-            // CGEventFlags 沒有 .function 成員，需要通過 rawValue 判斷
-            let flags = event.flags
-            let rawValue = flags.rawValue
-            // Fn 鍵的 flag 是 0x10000000 (268435456)
-            isTargetKey = (rawValue & 0x10000000) != 0
+        if type == .flagsChanged {
+            // flagsChanged 事件：透過 keyCode（scancode）判斷是哪個修飾鍵
+            if currentHotkey == .fn {
+                // Fn 鍵的 keyCode 可能不可靠，且任何 flags 改變都可能包含 Fn 鍵狀態變化
+                // 為了避免漏失，只要是 flagsChanged 且當前設定為 Fn，就視為目標鍵
+                // 後續會由 isKeyDown 檢查實際的 Fn flag 狀態
+                isTargetKey = true
+            } else {
+                // 其他修飾鍵：透過 keyCode 比對 scancode
+                isTargetKey = keyCode == Int64(currentHotkey.scancode)
+            }
         } else {
+            // keyDown / keyUp 事件（一般按鍵，目前不使用）
             isTargetKey = keyCode == Int64(currentHotkey.scancode)
         }
 
-        let isKeyDown = (type == .keyDown)
+        // 判斷修飾鍵是否處於「按下」狀態
+        let isKeyDown: Bool
+        if type == .flagsChanged {
+            // 修飾鍵：透過 flags 判斷按下或放開
+            switch currentHotkey {
+            case .leftCommand, .rightCommand:
+                isKeyDown = event.flags.contains(.maskCommand)
+            case .leftOption, .rightOption:
+                isKeyDown = event.flags.contains(.maskAlternate)
+            case .fn:
+                isKeyDown = event.flags.contains(.maskSecondaryFn)
+            }
+        } else {
+            // 一般按鍵
+            isKeyDown = (type == .keyDown)
+        }
 
         if isTargetKey {
             if isKeyDown && !isTargetKeyDown {
@@ -161,51 +163,16 @@ class HotkeyManager {
         }
     }
 
-    /// 處理 NSEvent 回退方案的事件
-    private func handleFlagsChanged(event: NSEvent, targetHotkey: HotkeyOption) {
-        let currentFlags = event.modifierFlags
-
-        let isTargetPressed: Bool
-
-        switch targetHotkey {
-        case .rightCommand:
-            // 使用 CGEvent 檢測右邊 Command
-            isTargetPressed = checkKeyDown(keyCode: 0x36)
-        case .leftCommand:
-            isTargetPressed = checkKeyDown(keyCode: 0x37)
-        case .rightOption:
-            isTargetPressed = checkKeyDown(keyCode: 0x3C)
-        case .leftOption:
-            isTargetPressed = checkKeyDown(keyCode: 0x3B)
-        case .fn:
-            isTargetPressed = currentFlags.contains(.function)
-        }
-
-        if isTargetPressed && !isTargetKeyDown {
-            isTargetKeyDown = true
-            onHotkeyPressed?()
-        } else if !isTargetPressed && isTargetKeyDown {
-            isTargetKeyDown = false
-            onHotkeyReleased?()
-        }
-    }
-
-    /// 使用 CGEvent 檢查特定鍵是否被按下
-    private func checkKeyDown(keyCode: UInt16) -> Bool {
-        let source = CGEventSource(stateID: .hidSystemState)
-        return CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true) != nil
-    }
-
     /// 停止監聽快捷鍵
     func stopMonitoring() {
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
         }
-        if let monitor = flagsMonitor {
-            NSEvent.removeMonitor(monitor)
-            flagsMonitor = nil
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
         }
+        eventTap = nil
+        runLoopSource = nil
         isTargetKeyDown = false
     }
 }

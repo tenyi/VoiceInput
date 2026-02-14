@@ -110,17 +110,17 @@ struct FloatingPanelView: View {
                 .foregroundColor(.white)
 
         case .recording:
-            // 錄音中：波形動畫
+            // 錄音中：原本好看的波形動畫
             Image(systemName: "waveform")
                 .font(.system(size: 20))
-                .foregroundColor(.red)
+                .foregroundColor(.white)
                 .symbolEffect(.variableColor.iterative.reversing, isActive: true)
 
         case .transcribing:
             // 轉寫中：旋轉載入動畫
             Image(systemName: "arrow.2.circlepath")
                 .font(.system(size: 20))
-                .foregroundColor(.orange)
+                .foregroundColor(.white)
                 .symbolEffect(.rotate, isActive: true)
         }
     }
@@ -143,7 +143,7 @@ struct FloatingPanelView: View {
 
         case .transcribing:
             Text("轉寫中...")
-                .foregroundColor(.orange)
+                .foregroundColor(.white)
                 .font(.system(size: 14, weight: .medium))
         }
     }
@@ -154,9 +154,9 @@ struct FloatingPanelView: View {
         case .idle:
             return Color.black.opacity(0.75)
         case .recording:
-            return Color.red.opacity(0.8)
+            return Color.black.opacity(0.75)
         case .transcribing:
-            return Color.orange.opacity(0.8)
+            return Color.black.opacity(0.75)
         }
     }
 }
