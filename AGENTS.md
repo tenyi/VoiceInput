@@ -4,6 +4,13 @@
 
 比對目標: VoiceInk App (<https://github.com/Beingpax/VoiceInk>)
 
+## 開發過程
+
+- Always reply in zh-TW.
+- Thinking in zh-TW.
+- Display thinking process in zh-TW.
+- Display message in zh-TW.
+
 ## 核心功能
 
 - 透過語音輸入文字
