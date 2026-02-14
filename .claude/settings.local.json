@@ -5,7 +5,8 @@
       "Bash(python3:*)",
       "Bash(pip3 install:*)",
       "Bash(sips:*)",
-      "Bash(sips -z 512 512:*)"
+      "Bash(sips -z 512 512:*)",
+      "mcp__sequential-thinking__sequentialthinking"
     ]
   }
 }

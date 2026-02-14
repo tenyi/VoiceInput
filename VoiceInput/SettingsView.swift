@@ -43,6 +43,49 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
+            // 權限狀態區塊
+            Section {
+                PermissionStatusRow(
+                    name: "麥克風",
+                    isGranted: viewModel.permissionManager.microphoneStatus == .authorized
+                )
+                .onTapGesture {
+                    viewModel.permissionManager.resetPermissionRequestFlag()
+                    viewModel.permissionManager.requestPermissionIfNeeded(.microphone) { _ in }
+                }
+
+                PermissionStatusRow(
+                    name: "語音辨識",
+                    isGranted: viewModel.permissionManager.speechRecognitionStatus == .authorized
+                )
+                .onTapGesture {
+                    viewModel.permissionManager.resetPermissionRequestFlag()
+                    viewModel.permissionManager.requestPermissionIfNeeded(.speechRecognition) { _ in }
+                }
+
+                PermissionStatusRow(
+                    name: "輔助功能",
+                    isGranted: viewModel.permissionManager.accessibilityStatus == .authorized
+                )
+                .onTapGesture {
+                    viewModel.permissionManager.resetPermissionRequestFlag()
+                    viewModel.permissionManager.requestPermissionIfNeeded(.accessibility) { _ in }
+                }
+
+                Button("請求權限") {
+                    // 重置權限請求標記，這樣才會再次彈出系統對話框
+                    viewModel.permissionManager.resetPermissionRequestFlag()
+                    // 請求權限
+                    viewModel.permissionManager.requestAllPermissionsIfNeeded { _ in }
+                }
+            } header: {
+                Text("權限狀態")
+            } footer: {
+                Text("點擊任一項目可查看或設定權限")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             Section {
                 Toggle("轉錄完成後自動插入文字", isOn: $viewModel.autoInsertText)
                     .toggleStyle(.checkbox)
@@ -65,6 +108,17 @@ struct GeneralSettingsView: View {
             }
         }
         .padding()
+        .sheet(isPresented: $viewModel.permissionManager.showingPermissionAlert) {
+            if let permissionType = viewModel.permissionManager.pendingPermissionType {
+                PermissionAlertView(
+                    permissionType: permissionType,
+                    onDismiss: {
+                        viewModel.permissionManager.showingPermissionAlert = false
+                        viewModel.permissionManager.checkAllPermissions()
+                    }
+                )
+            }
+        }
         .onAppear {
             // 載入已儲存的設定
             if let saved = HotkeyOption(rawValue: viewModel.selectedHotkey) {

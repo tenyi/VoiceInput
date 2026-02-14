@@ -6,6 +6,9 @@ import AVFAudio
 /// 負責處理麥克風輸入與權限管理的音訊引擎
 /// This class handles microphone input and permission management.
 class AudioEngine: ObservableObject {
+    /// 單例實例
+    static let shared = AudioEngine()
+
     /// AVAudioEngine 實例，用於處理音訊流
     private var audioEngine = AVAudioEngine()
     /// 麥克風輸入節點
@@ -16,21 +19,20 @@ class AudioEngine: ObservableObject {
     /// 是否已取得麥克風與語音識別權限
     @Published var permissionGranted = false
 
+    /// 權限管理員
+    private let permissionManager = PermissionManager.shared
+
+    private init() {}
+
     /// 檢查並請求麥克風與語音識別權限
+    /// 會依序彈出系統對話框請求權限，如果被拒絕則顯示提示視窗
     /// Checks and requests microphone and speech recognition permissions.
-    func checkPermission() {
-        // 先請求麥克風權限
-        requestMicrophonePermission { [weak self] micGranted in
-            // 再請求語音識別權限
-            SFSpeechRecognizer.requestAuthorization { authStatus in
-                DispatchQueue.main.async {
-                    // 必須兩個權限都同意才能使用
-                    self?.permissionGranted = micGranted && (authStatus == .authorized)
-                    if !self!.permissionGranted {
-                        print("權限不足 - 麥克風: \(micGranted), 語音識別: \(authStatus == .authorized)")
-                    }
-                }
-            }
+    func checkPermission(completion: ((Bool) -> Void)? = nil) {
+        // 使用 PermissionManager 請求所有權限
+        // 這會先檢查狀態，尚未決定時彈出系統對話框，已拒絕時顯示提示視窗
+        permissionManager.requestAllPermissionsIfNeeded { [weak self] allGranted in
+            self?.permissionGranted = allGranted
+            completion?(allGranted)
         }
     }
 

@@ -10,37 +10,49 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
-    
+
     var body: some View {
         VStack(spacing: 0) {
             // 標題與狀態
             headerView
-            
+
             Divider()
-            
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // 設定區塊：轉錄設定
                     transcriptionSettings
-                    
+
                     // 設定區塊：模型設定 (Whisper)
                     modelSettings
-                    
+
                     // 設定區塊：一般設定
                     generalSettings
-                    
+
                     // 最近轉錄結果預覽
                     transcriptionPreview
                 }
                 .padding()
             }
-            
+
             Divider()
-            
+
             footerView
         }
         .frame(width: 350, height: 500)
         .background(Color(nsColor: .windowBackgroundColor))
+        .sheet(isPresented: $viewModel.permissionManager.showingPermissionAlert) {
+            if let permissionType = viewModel.permissionManager.pendingPermissionType {
+                PermissionAlertView(
+                    permissionType: permissionType,
+                    onDismiss: {
+                        viewModel.permissionManager.showingPermissionAlert = false
+                        // 重新檢查權限
+                        viewModel.permissionManager.checkAllPermissions()
+                    }
+                )
+            }
+        }
     }
     
     // MARK: - Subviews
