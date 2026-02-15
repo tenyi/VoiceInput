@@ -183,22 +183,78 @@ struct ModelSettingsView: View {
             }
 
             if viewModel.currentSpeechEngine == .whisper {
+                // 已導入的模型列表
+                Section {
+                    if viewModel.importedModels.isEmpty {
+                        Text("尚未導入任何模型")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(viewModel.importedModels) { model in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(model.name)
+                                        .font(.body)
+                                    Text(model.fileName)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                // 顯示目前選擇的模型
+                                if viewModel.whisperModelPath.contains(model.fileName) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                }
+
+                                // 刪除按鈕
+                                Button(action: {
+                                    viewModel.deleteModel(model)
+                                }) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                viewModel.selectImportedModel(model)
+                            }
+                        }
+                    }
+
+                    // 導入按鈕
+                    Button(action: {
+                        viewModel.importModel()
+                    }) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("匯入模型...")
+                        }
+                    }
+                } header: {
+                    Text("已導入的模型")
+                } footer: {
+                    Text("點擊模型名稱選擇使用，點擊刪除圖示移除模型")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                // 舊的路徑選擇（保留相容性）
                 Section {
                     HStack {
-                        TextField("模型檔案路徑 (.bin)", text: $viewModel.whisperModelPath)
-                        
+                        TextField("或選擇其他路徑 (.bin)", text: $viewModel.whisperModelPath)
+
                         Button("瀏覽...") {
                             viewModel.selectModelFile()
                         }
                     }
                 } header: {
-                    Text("Whisper 模型路徑")
+                    Text("其他模型路徑")
                 } footer: {
-                    if viewModel.whisperModelPath.isEmpty {
-                        Text("請選擇 Whisper 模型檔案 (.bin)")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
+                    Text("手動輸入路徑或從其他位置選擇模型")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
         }

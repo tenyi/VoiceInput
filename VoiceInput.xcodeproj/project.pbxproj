@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		2B4632242F41E6C90000C48A /* SwiftWhisper in Frameworks */ = {isa = PBXBuildFile; productRef = 2B4632232F41E6C90000C48A /* SwiftWhisper */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		2B15AB192F4028FA00780465 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B4632242F41E6C90000C48A /* SwiftWhisper in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +83,7 @@
 				2B15AB0B2F4028F800780465 /* VoiceInput */,
 				2B15AB1B2F4028FA00780465 /* VoiceInputTests */,
 				2B15AB252F4028FA00780465 /* VoiceInputUITests */,
+				2B4632222F41E6C90000C48A /* Frameworks */,
 				2B15AB0A2F4028F800780465 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +96,13 @@
 				2B15AB222F4028FA00780465 /* VoiceInputUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		2B4632222F41E6C90000C48A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -112,6 +125,7 @@
 			);
 			name = VoiceInput;
 			packageProductDependencies = (
+				2B4632232F41E6C90000C48A /* SwiftWhisper */,
 			);
 			productName = VoiceInput;
 			productReference = 2B15AB092F4028F800780465 /* VoiceInput.app */;
@@ -195,6 +209,9 @@
 			);
 			mainGroup = 2B15AB002F4028F800780465;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2B4632212F41E5D90000C48A /* XCLocalSwiftPackageReference "SwiftWhisper" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2B15AB0A2F4028F800780465 /* Products */;
 			projectDirPath = "";
@@ -423,7 +440,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = tenyi.com.VoiceInput;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tenyi.VoiceInput;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
@@ -475,7 +492,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = tenyi.com.VoiceInput;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tenyi.VoiceInput;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
@@ -613,6 +630,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		2B4632212F41E5D90000C48A /* XCLocalSwiftPackageReference "SwiftWhisper" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = SwiftWhisper;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2B4632232F41E6C90000C48A /* SwiftWhisper */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2B4632212F41E5D90000C48A /* XCLocalSwiftPackageReference "SwiftWhisper" */;
+			productName = SwiftWhisper;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2B15AB012F4028F800780465 /* Project object */;
 }

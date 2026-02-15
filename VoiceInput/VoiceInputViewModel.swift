@@ -21,6 +21,19 @@ enum AppState {
     case transcribing // 轉寫中
 }
 
+/// 已導入的 Whisper 模型
+struct ImportedModel: Identifiable, Codable {
+    let id: UUID
+    var name: String
+    var fileName: String
+
+    init(name: String, fileName: String) {
+        self.id = UUID()
+        self.name = name
+        self.fileName = fileName
+    }
+}
+
 /// 負責管理 VoiceInput 應用程式狀態的 ViewModel
 class VoiceInputViewModel: ObservableObject {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "VoiceInputViewModel")
@@ -28,15 +41,27 @@ class VoiceInputViewModel: ObservableObject {
     // MARK: - 持久化設定 (AppStorage)
     @AppStorage("selectedLanguage") var selectedLanguage: String = "zh-TW"
     @AppStorage("whisperModelPath") var whisperModelPath: String = ""
+    @AppStorage("whisperModelBookmark") var whisperModelBookmark: Data = Data()
+
     @AppStorage("autoInsertText") var autoInsertText: Bool = true
     @AppStorage("selectedHotkey") var selectedHotkey: String = HotkeyOption.rightCommand.rawValue
     @AppStorage("selectedSpeechEngine") var selectedSpeechEngine: String = SpeechRecognitionEngine.apple.rawValue
+
+    // MARK: - 已導入的模型列表
+    @AppStorage("importedModels") private var importedModelsData: Data = Data()
+    @Published var importedModels: [ImportedModel] = []
+
+    /// 取得模型儲存目錄
+    private var modelsDirectory: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("VoiceInput/Models", isDirectory: true)
+    }
 
     // MARK: - Speech Engine 選項
     enum SpeechRecognitionEngine: String, CaseIterable, Identifiable {
         case apple = "Apple 系統語音辨識"
         case whisper = "Whisper (Local)"
-        
+
         var id: String { self.rawValue }
     }
 
@@ -115,8 +140,124 @@ class VoiceInputViewModel: ObservableObject {
 
     init() {
         loadLLMAPIKey()
+        loadImportedModels()
         setupAudioEngine()
         setupHotkeys()
+    }
+
+    // MARK: - 模型導入功能
+
+    /// 載入已導入的模型列表
+    private func loadImportedModels() {
+        guard !importedModelsData.isEmpty else { return }
+        do {
+            importedModels = try JSONDecoder().decode([ImportedModel].self, from: importedModelsData)
+            logger.info("已載入 \(self.importedModels.count) 個已導入的模型")
+        } catch {
+            logger.error("無法載入已導入的模型列表: \(error.localizedDescription)")
+        }
+    }
+
+    /// 保存已導入的模型列表
+    private func saveImportedModels() {
+        do {
+            importedModelsData = try JSONEncoder().encode(importedModels)
+        } catch {
+            logger.error("無法保存模型列表: \(error.localizedDescription)")
+        }
+    }
+
+    /// 導入模型（從檔案選擇器選擇）
+    func importModel() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.init(filenameExtension: "bin")].compactMap { $0 }
+        panel.message = "選擇 Whisper 模型檔案 (.bin)"
+
+        panel.begin { [weak self] result in
+            guard let self = self, result == .OK, let sourceURL = panel.url else { return }
+
+            DispatchQueue.main.async {
+                self.importModelFromURL(sourceURL)
+            }
+        }
+    }
+
+    /// 從指定 URL 導入模型
+    func importModelFromURL(_ sourceURL: URL) {
+        // 取得模型名稱（不含副檔名）
+        let modelName = sourceURL.deletingPathExtension().lastPathComponent
+        let destinationFileName = "\(modelName).bin"
+        var destinationURL = modelsDirectory.appendingPathComponent(destinationFileName)
+
+        // 檢查是否已存在
+        if importedModels.contains(where: { $0.fileName == destinationFileName }) {
+            logger.warning("模型已存在: \(destinationFileName)")
+            return
+        }
+
+        do {
+            // 確保目錄存在
+            try FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+
+            // 複製檔案
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+
+            // 新增到列表
+            let newModel = ImportedModel(name: modelName, fileName: destinationFileName)
+            importedModels.append(newModel)
+            saveImportedModels()
+
+            logger.info("模型導入成功: \(destinationFileName)")
+            print("[VoiceInputViewModel] 模型導入成功: \(destinationFileName)，儲存於: \(destinationURL.path)")
+        } catch {
+            logger.error("模型導入失敗: \(error.localizedDescription)")
+            print("[VoiceInputViewModel] 模型導入失敗: \(error)")
+        }
+    }
+
+    /// 刪除模型
+    func deleteModel(_ model: ImportedModel) {
+        let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
+
+        do {
+            // 刪除檔案
+            if FileManager.default.fileExists(atPath: modelURL.path) {
+                try FileManager.default.removeItem(at: modelURL)
+            }
+
+            // 從列表移除
+            importedModels.removeAll { $0.id == model.id }
+            saveImportedModels()
+
+            // 如果當前選擇的模型被刪除，清除選擇
+            if whisperModelPath == modelURL.path {
+                whisperModelPath = ""
+                whisperModelBookmark = Data()
+            }
+
+            logger.info("模型已刪除: \(model.fileName)")
+        } catch {
+            logger.error("刪除模型失敗: \(error.localizedDescription)")
+        }
+    }
+
+    /// 選擇已導入的模型
+    func selectImportedModel(_ model: ImportedModel) {
+        let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
+        whisperModelPath = modelURL.path
+        whisperModelBookmark = Data()
+        logger.info("已選擇模型: \(model.fileName)")
+    }
+
+    /// 取得目前選擇模型的 URL
+    func getSelectedModelURL() -> URL? {
+        if !whisperModelPath.isEmpty {
+            return URL(fileURLWithPath: whisperModelPath)
+        }
+        return nil
     }
 
     /// 從 Keychain 載入 API Key
@@ -232,19 +373,55 @@ class VoiceInputViewModel: ObservableObject {
             }
             
         case .whisper:
-            // TODO: Implement WhisperTranscriptionService
-            // 暫時顯示提示訊息
-            transcribedText = "Whisper 尚未實作，請選擇 Apple 系統語音辨識。"
-            WindowManager.shared.showFloatingWindow(isRecording: true)
-            appState = .recording // 雖然不錄音，但進入狀態以便顯示
-            
-            // 延遲隱藏
-             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                 WindowManager.shared.hideFloatingWindow()
-                 self.appState = .idle
-                 self.transcribedText = "等待輸入..."
+            // 檢查模型路徑是否存在
+            guard !whisperModelPath.isEmpty, FileManager.default.fileExists(atPath: whisperModelPath) else {
+                 transcribedText = "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)"
+                 WindowManager.shared.showFloatingWindow(isRecording: true)
+                 appState = .recording // 暫時進入狀態以顯示錯誤
+                 
+                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                     WindowManager.shared.hideFloatingWindow()
+                     self.appState = .idle
+                     self.transcribedText = "等待輸入..."
+                 }
+                 return
+            }
+
+             // 初始化或重用 Whisper 服務
+            // 若當前服務不是 Whisper 或模型路徑改變，則重新初始化
+            // 這裡簡化邏輯：每次開始錄音前檢查是否需要切換
+             if !(transcriptionService is WhisperTranscriptionService) {
+                 if let modelURL = resolveModelURL() {
+                     logger.info("正在初始化 Whisper 服務，模型路徑: \(modelURL.path)")
+
+                     // 創建 WhisperTranscriptionService，它會自己管理 security-scoped resource
+                     transcriptionService = WhisperTranscriptionService(modelURL: modelURL)
+
+                     // 檢查是否創建成功
+                     if let whisperService = transcriptionService as? WhisperTranscriptionService {
+                         logger.info("WhisperTranscriptionService 創建成功")
+                     } else {
+                         logger.error("WhisperTranscriptionService 創建失敗")
+                         transcribedText = "Whisper 服務初始化失敗，請重新選擇模型"
+                         WindowManager.shared.showFloatingWindow(isRecording: true)
+                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                             WindowManager.shared.hideFloatingWindow()
+                             self.transcribedText = "等待輸入..."
+                         }
+                         return
+                     }
+                 } else {
+                     logger.error("無法解析模型 URL")
+                     transcribedText = "無法解析模型 URL，請重新選擇模型"
+                     WindowManager.shared.showFloatingWindow(isRecording: true)
+                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                         WindowManager.shared.hideFloatingWindow()
+                         self.transcribedText = "等待輸入..."
+                     }
+                     return
+                 }
              }
-            return
+
         }
 
         // 顯示浮動視窗（錄音模式）
@@ -399,6 +576,42 @@ class VoiceInputViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Security Scoped Bookmark Handling
+    
+    private func saveBookmark(for url: URL) {
+        do {
+            let bookmarkData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            whisperModelBookmark = bookmarkData
+        } catch {
+            logger.error("無法建立書籤: \(error.localizedDescription)")
+        }
+    }
+    
+    private func resolveModelURL() -> URL? {
+        // 如果沒有書籤資料，嘗試使用路徑 (僅限非 Sandbox 環境或暫時相容)
+        if whisperModelBookmark.isEmpty {
+            guard !whisperModelPath.isEmpty else { return nil }
+            return URL(fileURLWithPath: whisperModelPath)
+        }
+        
+        var isStale = false
+        do {
+            let url = try URL(resolvingBookmarkData: whisperModelBookmark, 
+                             options: .withSecurityScope, 
+                             relativeTo: nil, 
+                             bookmarkDataIsStale: &isStale)
+            
+            if isStale {
+                logger.warning("書籤已過期，嘗試重新建立")
+                saveBookmark(for: url)
+            }
+            return url
+        } catch {
+            logger.error("無法解析書籤: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// 選擇 Whisper 模型檔案 (.bin)
     func selectModelFile() {
         let panel = NSOpenPanel()
@@ -406,9 +619,15 @@ class VoiceInputViewModel: ObservableObject {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.init(filenameExtension: "bin")].compactMap { $0 }
-
-        if panel.runModal() == .OK {
-            self.whisperModelPath = panel.url?.path ?? ""
+        
+        panel.begin { result in
+            if result == .OK, let url = panel.url {
+                DispatchQueue.main.async {
+                    self.whisperModelPath = url.path
+                    self.saveBookmark(for: url)
+                    self.logger.info("已選擇 Whisper 模型: \(url.path)")
+                }
+            }
         }
     }
 }
