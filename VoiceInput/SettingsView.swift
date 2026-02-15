@@ -10,25 +10,30 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
-    
+
     var body: some View {
         TabView {
             GeneralSettingsView()
                 .tabItem {
                     Label("一般", systemImage: "gear")
                 }
-            
+
             TranscriptionSettingsView()
                 .tabItem {
                     Label("轉錄", systemImage: "text.bubble")
                 }
-            
+
             ModelSettingsView()
                 .tabItem {
                     Label("模型", systemImage: "cpu")
                 }
+
+            LLMSettingsView()
+                .tabItem {
+                    Label("LLM", systemImage: "brain")
+                }
         }
-        .frame(width: 450, height: 280)
+        .frame(width: 450, height: 320)
         .padding()
     }
 }
@@ -150,37 +155,178 @@ struct TranscriptionSettingsView: View {
 
 struct ModelSettingsView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
-    
+
     var body: some View {
         Form {
             Section {
+                Picker("辨識引擎", selection: Binding(
+                    get: { viewModel.currentSpeechEngine },
+                    set: { viewModel.selectedSpeechEngine = $0.rawValue }
+                )) {
+                    ForEach(VoiceInputViewModel.SpeechRecognitionEngine.allCases) { engine in
+                        Text(engine.rawValue).tag(engine)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("語音辨識引擎")
+            } footer: {
+                if viewModel.currentSpeechEngine == .apple {
+                    Text("使用 macOS 內建的 SFSpeechRecognizer，無需下載模型，但需連網。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("使用本機 Whisper 模型，需下載 .bin 模型檔案。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if viewModel.currentSpeechEngine == .whisper {
+                Section {
+                    HStack {
+                        TextField("模型檔案路徑 (.bin)", text: $viewModel.whisperModelPath)
+                        
+                        Button("瀏覽...") {
+                            viewModel.selectModelFile()
+                        }
+                    }
+                } header: {
+                    Text("Whisper 模型路徑")
+                } footer: {
+                    if viewModel.whisperModelPath.isEmpty {
+                        Text("請選擇 Whisper 模型檔案 (.bin)")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+        }
+        .padding()
+    }
+}
+
+// MARK: - LLM 修正設定視圖
+struct LLMSettingsView: View {
+    @EnvironmentObject var viewModel: VoiceInputViewModel
+
+    /// 目前的 provider (從字串轉換)
+    @State private var selectedProvider: LLMProvider = .openAI
+    /// Prompt 文字 (用於編輯，若有自訂則顯示自訂值，否則顯示預設值)
+    @State private var promptText: String = ""
+
+    var body: some View {
+        Form {
+            // 啟用開關
+            Section {
+                Toggle("啟用 LLM 自動修正", isOn: $viewModel.llmEnabled)
+                    .toggleStyle(.checkbox)
+            } header: {
+                Text("LLM 修正")
+            } footer: {
+                Text("轉錄完成後自動使用 LLM 修正文字內容")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // Provider 選擇
+            Section {
+                Picker("服務提供者", selection: $selectedProvider) {
+                    ForEach(viewModel.availableLLMProviders, id: \.self) { provider in
+                        Text(provider.rawValue).tag(provider)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: selectedProvider) { _, newValue in
+                    viewModel.llmProvider = newValue.rawValue
+                }
+            } header: {
+                Text("Provider")
+            }
+
+            // 根據不同 provider 顯示不同輸入欄位
+            Section {
+                // 模型名稱 (所有 provider 都需要)
+                TextField("模型名稱", text: $viewModel.llmModel)
+                    .textFieldStyle(.roundedBorder)
+
+                // OpenAI / Anthropic 需要 API Key
+                if selectedProvider == .openAI || selectedProvider == .anthropic {
+                    SecureField("API Key", text: $viewModel.llmAPIKey)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                // Ollama 需要 URL
+                if selectedProvider == .ollama {
+                    TextField("API URL", text: $viewModel.llmURL)
+                        .textFieldStyle(.roundedBorder)
+                        .onAppear {
+                            if viewModel.llmURL.isEmpty {
+                                viewModel.llmURL = "http://localhost:11434"
+                            }
+                        }
+                }
+
+                // 自訂 API 需要 URL 和 API Key
+                if selectedProvider == .custom {
+                    TextField("API URL", text: $viewModel.llmURL)
+                        .textFieldStyle(.roundedBorder)
+
+                    SecureField("API Key (可選)", text: $viewModel.llmAPIKey)
+                        .textFieldStyle(.roundedBorder)
+                }
+            } header: {
+                Text("API 設定")
+            }
+
+            // Prompt 設定
+            Section {
+                // 使用@State 來處理編輯，若有自訂內容則顯示，否則顯示預設值
+                TextEditor(text: $promptText)
+                    .frame(height: 80)
+                    .font(.system(.body, design: .monospaced))
+                    .onChange(of: promptText) { _, newValue in
+                        // 只有當值與預設不同時才儲存
+                        if newValue != VoiceInputViewModel.defaultLLMPrompt {
+                            viewModel.llmPrompt = newValue
+                        } else {
+                            viewModel.llmPrompt = ""
+                        }
+                    }
+
                 HStack {
-                    TextField("模型檔案路徑 (.bin)", text: $viewModel.whisperModelPath)
-                    
-                    Button("瀏覽...") {
-                        selectModelFile()
+                    Button("重置為預設") {
+                        promptText = VoiceInputViewModel.defaultLLMPrompt
+                        viewModel.llmPrompt = ""
+                    }
+                    .buttonStyle(.link)
+
+                    Spacer()
+
+                    if promptText != VoiceInputViewModel.defaultLLMPrompt && !promptText.isEmpty {
+                        Text("已自訂")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    } else {
+                        Text("使用預設")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
             } header: {
-                Text("Whisper 模型路徑")
+                Text("自訂 Prompt")
             } footer: {
-                Text("若留空則預設使用 Apple 系統語音辨識 framework。")
+                Text("編輯提示詞來改變 LLM 修正文字的方式")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
         }
         .padding()
-    }
-    
-    private func selectModelFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.init(filenameExtension: "bin")].compactMap { $0 }
-        
-        if panel.runModal() == .OK {
-            viewModel.whisperModelPath = panel.url?.path ?? ""
+        .onAppear {
+            // 載入已儲存的 provider
+            selectedProvider = viewModel.currentLLMProvider
+            // 載入 Prompt，若有自訂則使用自訂值，否則使用預設值顯示
+            promptText = viewModel.llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : viewModel.llmPrompt
         }
     }
 }

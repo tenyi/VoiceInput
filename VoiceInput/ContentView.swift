@@ -100,7 +100,7 @@ struct ContentView: View {
                     .textFieldStyle(.roundedBorder)
                 
                 Button("瀏覽...") {
-                    selectModelFile()
+                    viewModel.selectModelFile()
                 }
             }
             
@@ -171,19 +171,6 @@ struct ContentView: View {
     }
     
     // MARK: - Actions
-
-    /// 選擇 Whisper 模型檔案
-    private func selectModelFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.init(filenameExtension: "bin")].compactMap { $0 }
-
-        if panel.runModal() == .OK {
-            viewModel.whisperModelPath = panel.url?.path ?? ""
-        }
-    }
 
     /// 顯示關於資訊
     private func showAbout() {

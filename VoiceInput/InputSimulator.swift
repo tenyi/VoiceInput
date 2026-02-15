@@ -1,6 +1,7 @@
 import Foundation
 import ApplicationServices
 import Cocoa
+import Carbon.HIToolbox
 
 /// 負責模擬鍵盤輸入與處理輔助功能權限
 class InputSimulator {
@@ -47,16 +48,20 @@ class InputSimulator {
     /// 透過剪貼簿與模擬 Cmd+V 貼上文字
     private func pasteText(_ text: String) {
         let pasteboard = NSPasteboard.general
+        
+        // 備份現有的剪貼簿內容（僅限純文字）
+        let oldString = pasteboard.string(forType: .string)
+        
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         
         // 模擬 Cmd+V 組合鍵
         let source = CGEventSource(stateID: .hidSystemState)
         
-        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true) // Command 鍵按下
-        let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true) // V 鍵按下
-        let vUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)   // V 鍵放開
-        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) // Command 鍵放開
+        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Command), keyDown: true) // Command 鍵按下
+        let vDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true) // V 鍵按下
+        let vUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false)   // V 鍵放開
+        let cmdUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Command), keyDown: false) // Command 鍵放開
         
         // 設定 Command 修飾鍵旗標
         cmdDown?.flags = .maskCommand
@@ -68,5 +73,17 @@ class InputSimulator {
         vDown?.post(tap: .cghidEventTap)
         vUp?.post(tap: .cghidEventTap)
         cmdUp?.post(tap: .cghidEventTap)
+        
+        // 延遲一段時間後恢復剪貼簿內容，確保貼上操作已完成
+        if let oldString = oldString {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                // 只有當剪貼簿內容仍是我們剛剛貼上的文字時才恢復
+                // 避免使用者在這 0.5 秒內又複製了新東西
+                if pasteboard.string(forType: .string) == text {
+                    pasteboard.clearContents()
+                    pasteboard.setString(oldString, forType: .string)
+                }
+            }
+        }
     }
 }

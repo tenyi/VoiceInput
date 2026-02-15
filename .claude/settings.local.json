@@ -6,7 +6,9 @@
       "Bash(pip3 install:*)",
       "Bash(sips:*)",
       "Bash(sips -z 512 512:*)",
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs"
     ]
   }
 }

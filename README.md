@@ -42,7 +42,7 @@ VoiceInput 是一款 macOS 上的語音輸入工具，讓您可以透過語音�
 1. 複製專案：
 
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/tenyi/VoiceInput.git
    cd VoiceInput
    ```
 

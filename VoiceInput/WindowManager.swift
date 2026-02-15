@@ -1,10 +1,13 @@
 import SwiftUI
 import AppKit
 import Combine
+import os
 
 /// 負責管理應用程式的所有視窗 (包括浮動面板)
 class WindowManager: ObservableObject {
     static let shared = WindowManager()
+    
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "WindowManager")
 
     private var floatingWindow: NSPanel?
     private var hostingController: NSHostingController<AnyView>?
@@ -16,7 +19,6 @@ class WindowManager: ObservableObject {
 
     /// 顯示浮動面板
     /// - Parameter isRecording: true 為錄音模式，false 為轉寫模式
-    /// Shows the floating window at the center of the screen or active display.
     func showFloatingWindow(isRecording: Bool) {
         if floatingWindow == nil {
             createFloatingWindow()
@@ -24,21 +26,41 @@ class WindowManager: ObservableObject {
 
         guard let window = floatingWindow else { return }
 
+        // 更新位置到滑鼠所在的螢幕
+        updateWindowPosition()
+        
         // 確保視窗顯示並置頂
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
 
     /// 隱藏浮動面板
-    /// Hides the floating window.
     func hideFloatingWindow() {
         floatingWindow?.orderOut(nil)
+    }
+    
+    /// 更新視窗位置到滑鼠所在的螢幕中央
+    private func updateWindowPosition() {
+        guard let window = floatingWindow else { return }
+        
+        // 獲取目前滑鼠所在的螢幕
+        let mouseLocation = NSEvent.mouseLocation
+        let screens = NSScreen.screens
+        let targetScreen = screens.first { NSMouseInRect(mouseLocation, $0.frame, false) } ?? NSScreen.main ?? screens.first
+        
+        if let screen = targetScreen {
+            let screenRect = screen.visibleFrame
+            // 視窗寬度預設 300 (在 createFloatingWindow 中設定)
+            let x = screenRect.midX - 150
+            let y = screenRect.midY - 40 + 100 // 稍微偏上方
+            window.setFrameOrigin(NSPoint(x: x, y: y))
+        }
     }
     
     /// 建立浮動面板
     private func createFloatingWindow() {
         guard let viewModel = viewModel else {
-            print("WindowManager: ViewModel not set")
+            logger.error("WindowManager: ViewModel not set")
             return
         }
         
@@ -66,15 +88,10 @@ class WindowManager: ObservableObject {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary] // 支援全螢幕 Space
         window.isMovableByWindowBackground = true // 允許拖曳
         
-        // 設定視窗置中
-        if let screen = NSScreen.main {
-            let screenRect = screen.visibleFrame
-            let x = screenRect.midX - 150
-            let y = screenRect.midY - 100 // 稍微偏上方
-            window.setFrameOrigin(NSPoint(x: x, y: y))
-        }
-        
         self.floatingWindow = window
+        
+        // 進行初始定位
+        updateWindowPosition()
     }
 }
 

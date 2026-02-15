@@ -48,11 +48,11 @@ enum PermissionType: String, CaseIterable {
     var deniedMessage: String {
         switch self {
         case .microphone:
-            return "VoiceInput 需要使用麥克風來錄製您的語音。\n\n請在「系統偏好設定」>「隱私權與安全性」>「麥克風」中允許 VoiceInput。"
+            return "VoiceInput 需要使用麥克風來錄製您的語音。\n\n請在「系統設定」>「隱私權與安全性」>「麥克風」中允許 VoiceInput。"
         case .speechRecognition:
-            return "VoiceInput 需要使用語音辨識來將語音轉換為文字。\n\n請在「系統偏好設定」>「隱私權與安全性」>「語音辨識」中允許 VoiceInput。"
+            return "VoiceInput 需要使用語音辨識來將語音轉換為文字。\n\n請在「系統設定」>「隱私權與安全性」>「語音辨識」中允許 VoiceInput。"
         case .accessibility:
-            return "VoiceInput 需要輔助功能權限來模擬鍵盤輸入，將文字輸入到其他應用程式中。\n\n請在「系統偏好設定」>「隱私權與安全性」>「輔助功能」中允許 VoiceInput。"
+            return "VoiceInput 需要輔助功能權限來模擬鍵盤輸入，將文字輸入到其他應用程式中。\n\n請在「系統設定」>「隱私權與安全性」>「輔助功能」中允許 VoiceInput。"
         }
     }
 }
@@ -338,59 +338,10 @@ class PermissionManager: ObservableObject {
                accessibilityStatus == .authorized
     }
 
-    /// 開啟系統偏好設定
-    /// 使用 AppleScript 來打開對應的隱私權設定頁面，並選中我們的 App
+    /// 開啟系統設定
     func openSystemPreferences(for type: PermissionType) {
-        // 取得 App 的 Bundle Identifier
-        let bundleId = Bundle.main.bundleIdentifier ?? "com.voiceinput.app"
-
-        // 使用 AppleScript 打開對應的隱私權設定，並選中我們的 App
-        let script: String
-
-        switch type {
-        case .microphone:
-            script = """
-            tell application "System Preferences"
-                activate
-                reveal anchor "Microphone" of pane id "com.apple.preference.security"
-            end tell
-            """
-        case .speechRecognition:
-            script = """
-            tell application "System Preferences"
-                activate
-                reveal anchor "Dictation" of pane id "com.apple.preference.security"
-            end tell
-            """
-        case .accessibility:
-            script = """
-            tell application "System Preferences"
-                activate
-                reveal anchor "Accessibility" of pane id "com.apple.preference.security"
-            end tell
-            delay 0.5
-            tell application "System Events"
-                tell process "System Preferences"
-                    -- 嘗試在清單中選中我們的 App
-                    try
-                        set frontmost to true
-                    end try
-                end tell
-            end tell
-            """
-        }
-
-        // 執行 AppleScript
-        var error: NSDictionary?
-        if let scriptObject = NSAppleScript(source: script) {
-            scriptObject.executeAndReturnError(&error)
-            if let error = error {
-                // 如果 AppleScript 失敗，退回到 URL 方式
-                print("AppleScript error: \(error)")
-                if let url = type.systemPreferencesURL {
-                    NSWorkspace.shared.open(url)
-                }
-            }
+        if let url = type.systemPreferencesURL {
+            NSWorkspace.shared.open(url)
         }
     }
 

@@ -1,5 +1,6 @@
 import Cocoa
 import Carbon
+import os
 
 /// 快捷鍵選項
 enum HotkeyOption: String, CaseIterable {
@@ -35,6 +36,9 @@ enum HotkeyOption: String, CaseIterable {
 class HotkeyManager {
     /// 單例實例
     static let shared = HotkeyManager()
+    
+    /// 日誌記錄
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "HotkeyManager")
 
     /// 當快捷鍵被按下時的閉包（開始錄音）
     var onHotkeyPressed: (() -> Void)?
@@ -66,7 +70,7 @@ class HotkeyManager {
     func startMonitoring() {
         stopMonitoring()
 
-        let targetHotkey = currentHotkey
+        //let targetHotkey = currentHotkey
 
         // 設置事件過濾 mask
         let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
@@ -74,6 +78,19 @@ class HotkeyManager {
         // 回調函數
         // 回調函數（listenOnly 模式下回傳值會被忽略）
         let callback: CGEventTapCallBack = { proxy, type, event, refcon in
+            // 檢查 Event Tap 是否被系統停用（例如因為處理超時）
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let refcon = refcon {
+                    let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
+                    if let tap = manager.eventTap {
+                        CGEvent.tapEnable(tap: tap, enable: true)
+                        manager.logger.warning("Event Tap 被系統停用，已自動恢復 (原因類型: \(type.rawValue))")
+                    }
+                }
+                // 對於這類通知事件，直接回傳原事件
+                return Unmanaged.passUnretained(event)
+            }
+            
             guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
             let manager = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
             manager.handleEvent(proxy: proxy, type: type, event: event)
@@ -91,7 +108,7 @@ class HotkeyManager {
             callback: callback,
             userInfo: refcon
         ) else {
-            print("無法創建 CGEventTap，請確認已授予輔助功能權限")
+            logger.error("無法創建 CGEventTap，請確認已授予輔助功能權限")
             return
         }
 
@@ -111,15 +128,16 @@ class HotkeyManager {
         // 因此必須透過 event.flags 來判斷修飾鍵是按下還是放開
 
         // 檢查是否是目標鍵
-        let isTargetKey: Bool
+        var isTargetKey: Bool
 
         if type == .flagsChanged {
             // flagsChanged 事件：透過 keyCode（scancode）判斷是哪個修飾鍵
             if currentHotkey == .fn {
-                // Fn 鍵的 keyCode 可能不可靠，且任何 flags 改變都可能包含 Fn 鍵狀態變化
-                // 為了避免漏失，只要是 flagsChanged 且當前設定為 Fn，就視為目標鍵
-                // 後續會由 isKeyDown 檢查實際的 Fn flag 狀態
-                isTargetKey = true
+                // Fn 鍵：透過 .maskSecondaryFn 的狀態變化來判斷
+                // 只在 fn flag 狀態「真正改變」時才視為目標鍵事件
+                // 避免其他修飾鍵的 flagsChanged 事件被誤判為 fn 鍵事件
+                let fnIsDown = event.flags.contains(.maskSecondaryFn)
+                isTargetKey = (fnIsDown != isTargetKeyDown)
             } else {
                 // 其他修飾鍵：透過 keyCode 比對 scancode
                 isTargetKey = keyCode == Int64(currentHotkey.scancode)
@@ -149,12 +167,14 @@ class HotkeyManager {
         if isTargetKey {
             if isKeyDown && !isTargetKeyDown {
                 // 按下
+                logger.info("快捷鍵按下: \(self.currentHotkey.rawValue)")
                 isTargetKeyDown = true
                 DispatchQueue.main.async { [weak self] in
                     self?.onHotkeyPressed?()
                 }
             } else if !isKeyDown && isTargetKeyDown {
                 // 放開
+                logger.info("快捷鍵放開: \(self.currentHotkey.rawValue)")
                 isTargetKeyDown = false
                 DispatchQueue.main.async { [weak self] in
                     self?.onHotkeyReleased?()
