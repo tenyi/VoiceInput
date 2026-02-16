@@ -10,6 +10,7 @@
 - Thinking in zh-TW.
 - Display thinking process in zh-TW.
 - Display message in zh-TW.
+- 嚴禁使用 zh-CN 簡體中文
 
 ## 核心功能
 

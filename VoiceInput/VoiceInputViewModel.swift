@@ -79,7 +79,7 @@ class VoiceInputViewModel: ObservableObject {
     // MARK: - 持久化設定 (AppStorage)
     @AppStorage("selectedLanguage") var selectedLanguage: String = "zh-TW"
     @AppStorage("whisperModelPath") var whisperModelPath: String = ""
-    @AppStorage("whisperModelBookmark") var whisperModelBookmark: Data = Data()
+
 
     @AppStorage("autoInsertText") var autoInsertText: Bool = true
     @AppStorage("selectedHotkey") var selectedHotkey: String = HotkeyOption.rightCommand.rawValue
@@ -131,7 +131,7 @@ class VoiceInputViewModel: ObservableObject {
     /// API Key (已遷移至 Keychain)
     @Published var llmAPIKey: String = "" {
         didSet {
-            KeychainHelper.shared.save(llmAPIKey, service: "com.voiceinput.llm", account: "llmAPIKey")
+            KeychainHelper.shared.save(llmAPIKey, service: "com.tenyi.voiceinput", account: "llmAPIKey")
         }
     }
     
@@ -158,6 +158,23 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 音訊引擎 (使用單例)
     private var audioEngine = AudioEngine.shared
+
+    /// 可用的音訊輸入設備列表
+    var availableInputDevices: [AudioInputDevice] {
+        audioEngine.availableInputDevices
+    }
+
+    /// 當前選擇的音訊輸入設備 ID
+    @Published var selectedInputDeviceID: String? {
+        didSet {
+            audioEngine.selectedDeviceID = selectedInputDeviceID
+        }
+    }
+
+    /// 刷新音訊設備列表
+    func refreshAudioDevices() {
+        audioEngine.refreshAvailableDevices()
+    }
     /// 轉錄服務 (目前支援 SFSpeech)
     private var transcriptionService: TranscriptionServiceProtocol = SFSpeechTranscriptionService()
     /// 輸入模擬器 (用於插入文字)
@@ -242,34 +259,82 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 從指定 URL 導入模型
     func importModelFromURL(_ sourceURL: URL) {
+        // 進入匯入狀態
+        self.isImportingModel = true
+        self.modelImportError = nil
+        self.modelImportProgress = 0.0
+        self.modelImportSpeed = "準備中..."
+        self.modelImportRemainingTime = "計算中..."
+
         // 取得模型名稱（不含副檔名）
         let modelName = sourceURL.deletingPathExtension().lastPathComponent
         let destinationFileName = "\(modelName).bin"
-        var destinationURL = modelsDirectory.appendingPathComponent(destinationFileName)
+        let destinationURL = modelsDirectory.appendingPathComponent(destinationFileName)
 
         // 檢查是否已存在
         if importedModels.contains(where: { $0.fileName == destinationFileName }) {
-            logger.warning("模型已存在: \(destinationFileName)")
+            self.modelImportError = "模型已存在: \(destinationFileName)"
+            self.isImportingModel = false
             return
         }
 
-        do {
-            // 確保目錄存在
-            try FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+        // 在背景執行複製操作
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            do {
+                // 確保目錄存在
+                try FileManager.default.createDirectory(at: self.modelsDirectory, withIntermediateDirectories: true, attributes: nil)
 
-            // 複製檔案
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                // 使用 FileCoordinator 進行安全複製 (也可以簡單使用 FileManager callback，但 swift 標準庫沒有進度回調的 copy)
+                // 這裡我們模擬進度或直接複製。因為 FileManager.copyItem 是同步且無進度的。
+                // 為了更好的 UX，我們先檢查檔案大小
+                let fileSize = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                
+                // 開始複製
+                DispatchQueue.main.async {
+                     self.modelImportSpeed = "正在複製..."
+                     self.modelImportProgress = 0.5 // 假進度，因為 copyItem 無法追蹤
+                }
+                
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
 
-            // 新增到列表
-            let newModel = ImportedModel(name: modelName, fileName: destinationFileName)
-            importedModels.append(newModel)
-            saveImportedModels()
-
-            logger.info("模型導入成功: \(destinationFileName)")
-            print("[VoiceInputViewModel] 模型導入成功: \(destinationFileName)，儲存於: \(destinationURL.path)")
-        } catch {
-            logger.error("模型導入失敗: \(error.localizedDescription)")
-            print("[VoiceInputViewModel] 模型導入失敗: \(error)")
+                // 建立新模型物件
+                let newModel = ImportedModel(name: modelName, fileName: destinationFileName, fileSize: Int64(fileSize))
+                
+                DispatchQueue.main.async {
+                    // 新增到列表
+                    self.importedModels.append(newModel)
+                    self.saveImportedModels()
+                    
+                    // 自動選擇新導入的模型
+                    self.selectImportedModel(newModel)
+                    
+                    self.logger.info("模型導入成功: \(destinationFileName)")
+                    print("[VoiceInputViewModel] 模型導入成功: \(destinationFileName)，儲存於: \(destinationURL.path)")
+                    
+                    // 完成
+                    self.modelImportProgress = 1.0
+                    self.modelImportSpeed = "完成"
+                    self.modelImportRemainingTime = ""
+                    
+                    // 延遲一下讓用戶看到 100%
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.isImportingModel = false
+                        self.modelImportProgress = 0.0
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.logger.error("模型導入失敗: \(error.localizedDescription)")
+                    self.modelImportError = "導入失敗: \(error.localizedDescription)"
+                    self.isImportingModel = false
+                }
+            }
         }
     }
 
@@ -290,7 +355,6 @@ class VoiceInputViewModel: ObservableObject {
             // 如果當前選擇的模型被刪除，清除選擇
             if whisperModelPath == modelURL.path {
                 whisperModelPath = ""
-                whisperModelBookmark = Data()
             }
 
             logger.info("模型已刪除: \(model.fileName)")
@@ -303,7 +367,6 @@ class VoiceInputViewModel: ObservableObject {
     func selectImportedModel(_ model: ImportedModel) {
         let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
         whisperModelPath = modelURL.path
-        whisperModelBookmark = Data()
         logger.info("已選擇模型: \(model.fileName)")
     }
 
@@ -317,7 +380,7 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 從 Keychain 載入 API Key
     private func loadLLMAPIKey() {
-        if let savedKey = KeychainHelper.shared.read(service: "com.voiceinput.llm", account: "llmAPIKey") {
+        if let savedKey = KeychainHelper.shared.read(service: "com.tenyi.voiceinput", account: "llmAPIKey") {
             self.llmAPIKey = savedKey
         } else {
             // 遷移邏輯：嘗試從 UserDefaults 讀取舊的明文 Key
@@ -325,7 +388,7 @@ class VoiceInputViewModel: ObservableObject {
             if !legacyKey.isEmpty {
                 self.llmAPIKey = legacyKey
                 // 遷移成功後，建議手動同步一次 Keychain 並刪除舊資料
-                KeychainHelper.shared.save(legacyKey, service: "com.voiceinput.llm", account: "llmAPIKey")
+                KeychainHelper.shared.save(legacyKey, service: "com.tenyi.voiceinput", account: "llmAPIKey")
                 UserDefaults.standard.removeObject(forKey: "llmAPIKey")
             }
         }
@@ -631,58 +694,17 @@ class VoiceInputViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Security Scoped Bookmark Handling
-    
-    private func saveBookmark(for url: URL) {
-        do {
-            let bookmarkData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-            whisperModelBookmark = bookmarkData
-        } catch {
-            logger.error("無法建立書籤: \(error.localizedDescription)")
-        }
-    }
-    
     private func resolveModelURL() -> URL? {
-        // 如果沒有書籤資料，嘗試使用路徑 (僅限非 Sandbox 環境或暫時相容)
-        if whisperModelBookmark.isEmpty {
-            guard !whisperModelPath.isEmpty else { return nil }
-            return URL(fileURLWithPath: whisperModelPath)
-        }
+        // 直接使用路徑解析，因為所有模型現在都應該在 App Sandbox 內
+        guard !whisperModelPath.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: whisperModelPath)
         
-        var isStale = false
-        do {
-            let url = try URL(resolvingBookmarkData: whisperModelBookmark, 
-                             options: .withSecurityScope, 
-                             relativeTo: nil, 
-                             bookmarkDataIsStale: &isStale)
-            
-            if isStale {
-                logger.warning("書籤已過期，嘗試重新建立")
-                saveBookmark(for: url)
-            }
+        // 簡單驗證檔案是否存在
+        if FileManager.default.fileExists(atPath: url.path) {
             return url
-        } catch {
-            logger.error("無法解析書籤: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// 選擇 Whisper 模型檔案 (.bin)
-    func selectModelFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.init(filenameExtension: "bin")].compactMap { $0 }
-
-        panel.begin { result in
-            if result == .OK, let url = panel.url {
-                DispatchQueue.main.async {
-                    self.whisperModelPath = url.path
-                    self.saveBookmark(for: url)
-                    self.logger.info("已選擇 Whisper 模型: \(url.path)")
-                }
-            }
+        } else {
+             logger.warning("模型檔案不存在: \(url.path)")
+             return nil
         }
     }
 

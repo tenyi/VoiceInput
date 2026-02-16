@@ -95,14 +95,9 @@ struct ContentView: View {
             Label("Whisper 模型", systemImage: "cpu")
                 .font(.headline)
             
-            HStack {
-                TextField("模型檔案路徑 (.bin)", text: $viewModel.whisperModelPath)
-                    .textFieldStyle(.roundedBorder)
-                
-                Button("瀏覽...") {
-                    viewModel.selectModelFile()
-                }
-            }
+            Text(viewModel.whisperModelPath.isEmpty ? "未選擇模型" : URL(fileURLWithPath: viewModel.whisperModelPath).lastPathComponent)
+                .font(.system(.body, design: .monospaced))
+                .foregroundColor(.secondary)
             
             Text("留空則預設使用 Apple 系統語音辨識")
                 .font(.caption2)

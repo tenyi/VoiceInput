@@ -33,7 +33,7 @@ struct SettingsView: View {
                     Label("LLM", systemImage: "brain")
                 }
         }
-        .frame(width: 450, height: 320)
+        .frame(width: 480, height: 430)
         .padding()
     }
 }
@@ -87,6 +87,35 @@ struct GeneralSettingsView: View {
                 Text("權限狀態")
             } footer: {
                 Text("點擊任一項目可查看或設定權限")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // 音訊輸入設備選擇
+            Section {
+                Picker("輸入設備", selection: Binding(
+                    get: { viewModel.selectedInputDeviceID },
+                    set: { viewModel.selectedInputDeviceID = $0 }
+                )) {
+                    ForEach(viewModel.availableInputDevices) { device in
+                        Text(device.name).tag(device.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onAppear {
+                    viewModel.refreshAudioDevices()
+                }
+
+                Button(action: {
+                    viewModel.refreshAudioDevices()
+                }) {
+                    Label("重新整理設備", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.link)
+            } header: {
+                Text("音訊輸入")
+            } footer: {
+                Text("選擇要用於語音輸入的麥克風設備")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -283,22 +312,6 @@ struct ModelSettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
-                // 舊的路徑選擇（保留相容性）
-                Section {
-                    HStack {
-                        TextField("或選擇其他路徑 (.bin)", text: $viewModel.whisperModelPath)
-
-                        Button("瀏覽...") {
-                            viewModel.selectModelFile()
-                        }
-                    }
-                } header: {
-                    Text("其他模型路徑")
-                } footer: {
-                    Text("手動輸入路徑或從其他位置選擇模型")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
             }
         }
         .padding()
