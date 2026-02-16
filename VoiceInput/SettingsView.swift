@@ -183,43 +183,77 @@ struct ModelSettingsView: View {
             }
 
             if viewModel.currentSpeechEngine == .whisper {
+                // 匯入進度顯示
+                if viewModel.isImportingModel {
+                    Section {
+                        VStack(spacing: 12) {
+                            // 進度條
+                            ProgressView(value: viewModel.modelImportProgress) {
+                                Text("正在匯入模型...")
+                                    .font(.headline)
+                            }
+                            .progressViewStyle(.linear)
+
+                            // 進度百分比
+                            Text("\(Int(viewModel.modelImportProgress * 100))%")
+                                .font(.title2)
+                                .fontWeight(.medium)
+
+                            // 速度和剩餘時間
+                            HStack(spacing: 16) {
+                                if !viewModel.modelImportSpeed.isEmpty {
+                                    Label(viewModel.modelImportSpeed, systemImage: "speedometer")
+                                }
+
+                                if !viewModel.modelImportRemainingTime.isEmpty {
+                                    Label(viewModel.modelImportRemainingTime, systemImage: "clock")
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 8)
+                    } header: {
+                        Text("匯入進度")
+                    }
+                }
+
+                // 錯誤訊息顯示
+                if let error = viewModel.modelImportError {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .font(.callout)
+                    } header: {
+                        Text("錯誤")
+                    }
+                }
+
                 // 已導入的模型列表
                 Section {
                     if viewModel.importedModels.isEmpty {
-                        Text("尚未導入任何模型")
-                            .foregroundColor(.secondary)
+                        VStack(spacing: 8) {
+                            Image(systemName: "cube.box")
+                                .font(.system(size: 32))
+                                .foregroundColor(.secondary)
+                            Text("尚未導入任何模型")
+                                .foregroundColor(.secondary)
+                            Text("點擊下方按鈕匯入 Whisper 模型")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
                     } else {
-                        ForEach(viewModel.importedModels) { model in
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(model.name)
-                                        .font(.body)
-                                    Text(model.fileName)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-
-                                Spacer()
-
-                                // 顯示目前選擇的模型
-                                if viewModel.whisperModelPath.contains(model.fileName) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                }
-
-                                // 刪除按鈕
-                                Button(action: {
-                                    viewModel.deleteModel(model)
-                                }) {
-                                    Image(systemName: "trash")
-                                        .foregroundColor(.red)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                viewModel.selectImportedModel(model)
-                            }
+                        ForEach(viewModel.importedModels, id: \.fileName) { model in
+                            ModelRowView(
+                                model: model,
+                                isSelected: viewModel.whisperModelPath.contains(model.fileName),
+                                modelsDirectory: viewModel.publicModelsDirectory,
+                                onSelect: { viewModel.selectImportedModel(model) },
+                                onDelete: { viewModel.deleteModel(model) },
+                                onShowInFinder: { viewModel.showModelInFinder(model) }
+                            )
                         }
                     }
 
@@ -232,8 +266,17 @@ struct ModelSettingsView: View {
                             Text("匯入模型...")
                         }
                     }
+                    .disabled(viewModel.isImportingModel)
                 } header: {
-                    Text("已導入的模型")
+                    HStack {
+                        Text("已導入的模型")
+                        Spacer()
+                        if !viewModel.importedModels.isEmpty {
+                            Text("\(viewModel.importedModels.count) 個")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 } footer: {
                     Text("點擊模型名稱選擇使用，點擊刪除圖示移除模型")
                         .font(.caption)
@@ -259,6 +302,100 @@ struct ModelSettingsView: View {
             }
         }
         .padding()
+    }
+}
+
+/// 模型列表行視圖
+struct ModelRowView: View {
+    let model: ImportedModel
+    let isSelected: Bool
+    let modelsDirectory: URL
+    let onSelect: () -> Void
+    let onDelete: () -> Void
+    let onShowInFinder: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // 模型圖示
+            Image(systemName: "cpu.fill")
+                .font(.title2)
+                .foregroundColor(isSelected ? .green : .secondary)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 4) {
+                // 模型名稱和類型標籤
+                HStack(spacing: 8) {
+                    Text(model.name)
+                        .font(.body)
+                        .fontWeight(.medium)
+
+                    // 模型類型標籤
+                    Text(model.inferredModelType)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.15))
+                        .foregroundColor(.blue)
+                        .cornerRadius(4)
+                }
+
+                // 檔案大小和匯入日期
+                HStack(spacing: 8) {
+                    // 檔案大小
+                    Label(model.fileSizeFormatted, systemImage: "externaldrive")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    // 匯入日期
+                    if let importDate = model.importDate as Date? {
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        Text(importDate.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // 檔案存在狀態
+                if !model.fileExists(in: modelsDirectory) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("檔案不存在")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // 選中狀態
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.title3)
+            }
+
+            // 在 Finder 中顯示
+            Button(action: onShowInFinder) {
+                Image(systemName: "folder")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("在 Finder 中顯示")
+
+            // 刪除按鈕
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.plain)
+            .help("刪除模型")
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
     }
 }
 

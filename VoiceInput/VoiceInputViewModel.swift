@@ -26,11 +26,49 @@ struct ImportedModel: Identifiable, Codable {
     let id: UUID
     var name: String
     var fileName: String
+    /// 檔案大小（bytes）
+    var fileSize: Int64?
+    /// 匯入日期
+    var importDate: Date
 
-    init(name: String, fileName: String) {
+    init(name: String, fileName: String, fileSize: Int64? = nil, importDate: Date = Date()) {
         self.id = UUID()
         self.name = name
         self.fileName = fileName
+        self.fileSize = fileSize
+        self.importDate = importDate
+    }
+
+    /// 格式化的檔案大小
+    var fileSizeFormatted: String {
+        guard let size = fileSize else { return "未知" }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: size)
+    }
+
+    /// 推斷的模型類型（根據檔案大小）
+    var inferredModelType: String {
+        guard let size = fileSize else { return "未知" }
+        // 根據檔案大小推斷模型類型（近似值）
+        if size < 75_000_000 {
+            return "Tiny"
+        } else if size < 150_000_000 {
+            return "Base"
+        } else if size < 500_000_000 {
+            return "Small"
+        } else if size < 1_500_000_000 {
+            return "Medium"
+        } else {
+            return "Large"
+        }
+    }
+
+    /// 檢查檔案是否存在
+    func fileExists(in directory: URL) -> Bool {
+        let url = directory.appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: url.path)
     }
 }
 
@@ -50,6 +88,23 @@ class VoiceInputViewModel: ObservableObject {
     // MARK: - 已導入的模型列表
     @AppStorage("importedModels") private var importedModelsData: Data = Data()
     @Published var importedModels: [ImportedModel] = []
+
+    // MARK: - 模型匯入狀態
+    /// 是否正在匯入模型
+    @Published var isImportingModel = false
+    /// 匯入進度 (0.0 ~ 1.0)
+    @Published var modelImportProgress: Double = 0.0
+    /// 匯入錯誤訊息
+    @Published var modelImportError: String?
+    /// 匯入速度（格式化字串）
+    @Published var modelImportSpeed: String = ""
+    /// 預估剩餘時間
+    @Published var modelImportRemainingTime: String = ""
+
+    /// 公開的模型目錄 URL（供 UI 使用）
+    var publicModelsDirectory: URL {
+        return modelsDirectory
+    }
 
     /// 取得模型儲存目錄
     private var modelsDirectory: URL {
@@ -619,7 +674,7 @@ class VoiceInputViewModel: ObservableObject {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.init(filenameExtension: "bin")].compactMap { $0 }
-        
+
         panel.begin { result in
             if result == .OK, let url = panel.url {
                 DispatchQueue.main.async {
@@ -629,5 +684,11 @@ class VoiceInputViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// 在 Finder 中顯示模型檔案
+    func showModelInFinder(_ model: ImportedModel) {
+        let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
+        NSWorkspace.shared.selectFile(modelURL.path, inFileViewerRootedAtPath: modelsDirectory.path)
     }
 }
