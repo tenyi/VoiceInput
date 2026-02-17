@@ -421,6 +421,36 @@ struct LLMSettingsView: View {
     /// Prompt 文字 (用於編輯，若有自訂則顯示自訂值，否則顯示預設值)
     @State private var promptText: String = ""
 
+    // 測試相關狀態
+    @State private var isTesting: Bool = false
+    @State private var testOutput: String = ""
+    @State private var testError: String = ""
+    @State private var testSucceeded: Bool = false
+
+    /// 測試文字
+    private let testInputText = "垂直致中，致中對齊"
+
+    /// 執行 LLM 測試
+    private func performLLMTest() {
+        isTesting = true
+        testOutput = ""
+        testError = ""
+        testSucceeded = false
+
+        viewModel.testLLM(text: testInputText) { result in
+            DispatchQueue.main.async { [self] in
+                isTesting = false
+                switch result {
+                case .success(let correctedText):
+                    testOutput = correctedText
+                    testSucceeded = true
+                case .failure(let error):
+                    testError = error.localizedDescription
+                }
+            }
+        }
+    }
+
     var body: some View {
         Form {
             // 啟用開關
@@ -523,6 +553,76 @@ struct LLMSettingsView: View {
                 Text("自訂 Prompt")
             } footer: {
                 Text("編輯提示詞來改變 LLM 修正文字的方式")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // 測試區塊
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    // 測試按鈕
+                    Button(action: performLLMTest) {
+                        HStack {
+                            if isTesting {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("測試中...")
+                            } else {
+                                Image(systemName: "play.fill")
+                                Text("測試 LLM 設定")
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isTesting || viewModel.llmModel.isEmpty)
+
+                    // 測試結果顯示
+                    if !testInputText.isEmpty || !testOutput.isEmpty || !testError.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // 輸入文字
+                            Text("輸入文字：")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(testInputText)
+                                .font(.system(.body, design: .monospaced))
+                                .padding(8)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(6)
+                                .textSelection(.enabled)
+
+                            // 輸出文字
+                            if !testOutput.isEmpty {
+                                Text("輸出文字：")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(testOutput)
+                                    .font(.system(.body, design: .monospaced))
+                                    .padding(8)
+                                    .background(testSucceeded ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
+                                    .cornerRadius(6)
+                                    .textSelection(.enabled)
+                            }
+
+                            // 錯誤訊息
+                            if !testError.isEmpty {
+                                Text("錯誤：")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                Text(testError)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.red)
+                                    .padding(8)
+                                    .background(Color.red.opacity(0.1))
+                                    .cornerRadius(6)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("測試 LLM")
+            } footer: {
+                Text("點擊測試按鈕驗證 LLM 設定是否正確")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

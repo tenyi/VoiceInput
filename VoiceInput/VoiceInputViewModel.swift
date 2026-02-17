@@ -611,11 +611,16 @@ class VoiceInputViewModel: ObservableObject {
                           !transcribedText.hasPrefix("識別錯誤：") &&
                           transcribedText != "等待輸入..."
 
-        // 只有在有有效文字且啟用 LLM 修正時才送到 LLM
-        if llmEnabled && hasValidText {
-            // 進行 LLM 修正
-            performLLMCorrection { [weak self] in
-                self?.proceedToInsertAndHide()
+        // 有有效文字的情況
+        if hasValidText {
+            if llmEnabled {
+                // 啟用 LLM 修正：進行修正後再插入
+                performLLMCorrection { [weak self] in
+                    self?.proceedToInsertAndHide()
+                }
+            } else {
+                // 未啟用 LLM：直接插入文字並隱藏
+                proceedToInsertAndHide()
             }
         } else {
             // 無有效文字，直接隱藏視窗
@@ -692,6 +697,27 @@ class VoiceInputViewModel: ObservableObject {
         } else if appState == .idle {
             handleHotkeyPressed()
         }
+    }
+
+    /// 測試 LLM 設定是否正確
+    /// - Parameters:
+    ///   - text: 測試文字
+    ///   - completion: 回調，回傳修正後的文字或錯誤
+    func testLLM(
+        text: String,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        let prompt = llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : llmPrompt
+
+        LLMService.shared.correctText(
+            text: text,
+            prompt: prompt,
+            provider: currentLLMProvider,
+            apiKey: llmAPIKey,
+            url: llmURL,
+            model: llmModel,
+            completion: completion
+        )
     }
 
     private func resolveModelURL() -> URL? {
