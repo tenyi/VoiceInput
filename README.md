@@ -62,7 +62,7 @@ VoiceInput 是一款 macOS 上的語音輸入工具，讓您可以透過語音�
 
 ### 基本操作
 
-1. **開始錄音**：按住設定的快捷鍵（例如右邊 Command）
+1. **開始錄音**：按住設定的快捷鍵（例如右邊 Command 或 fn 鍵）
 2. **說話**：對著麥克風說話
 3. **停止並輸入**：放開快捷鍵，語音會自動轉換為文字並插入到您正在使用的輸入框中
 
@@ -77,10 +77,39 @@ VoiceInput 是一款 macOS 上的語音輸入工具，讓您可以透過語音�
 
 ## 技術架構
 
-- **語音辨識**：使用 Apple 的 Speech Framework (SFSpeechRecognizer)
+- **語音辨識**：
+  - **Apple Speech Framework**：macOS 內建的語音辨識服務，無需額外設定即可使用
+  - **Whisper**：支援本地端 Whisper 模型，可離線使用且辨識效果更佳
 - **音訊處理**：使用 AVAudioEngine 進行錄音
 - **鍵盤模擬**：使用 CGEvent 模擬 Cmd+V 貼上文字
 - **快捷鍵監控**：使用 CGEventTap 監聽鍵盤事件
+
+## 推薦模型
+
+### 聯發科 Breeze ASR 模型（繁體中文極力推薦）
+
+對於繁體中文辨識，推薦使用聯發科（MediaTek）的 Breeze ASR 模型：
+
+**下載連結**：<https://huggingface.co/alan314159/Breeze-ASR-25-whispercpp/tree/main>
+
+**推薦版本**：
+
+- `ggml-model-q4_k.bin`（4 bit 量化）：平衡了模型大小與辨識效果，推薦首選
+- `ggml-model-q8_k.bin`（8 bit 量化）：如果需要高精度且磁碟空間允許
+
+**使用方法**：
+
+1. 從上述連結下載 `ggml-model-q4_k.bin` 模型檔案
+2. 打開 VoiceInput 設定
+3. 前往「模型」頁面
+4. 點擊「匯入模型」並選擇下載的模型檔案
+5. 選擇該模型作為 Whisper 引擎
+
+**為什麼選擇 Breeze ASR**：
+
+- 專為中文語音設計，繁體中文辨識效果優異
+- 經過 whisper.cpp 優化，可在 Apple Silicon 上高效運行
+- 4 bit 量化版本體積小（約 900MB），記憶體佔用低
 
 ## 開發者
 

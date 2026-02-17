@@ -50,8 +50,8 @@ class WindowManager: ObservableObject {
         
         if let screen = targetScreen {
             let screenRect = screen.visibleFrame
-            // 視窗寬度預設 300 (在 createFloatingWindow 中設定)
-            let x = screenRect.midX - 150
+            let windowWidth = window.frame.width
+            let x = screenRect.midX - (windowWidth / 2)
             let y = screenRect.midY - 40 + 100 // 稍微偏上方
             window.setFrameOrigin(NSPoint(x: x, y: y))
         }
@@ -74,7 +74,7 @@ class WindowManager: ObservableObject {
         
         // 初始化 NSPanel
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 80), // 初始大小，會自動調整
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 116), // 初始大小，會依內容調整
             styleMask: [.borderless, .nonactivatingPanel], // 無邊框、不搶佔焦點
             backing: .buffered,
             defer: false
@@ -98,6 +98,20 @@ class WindowManager: ObservableObject {
 /// 浮動面板的 UI (SwiftUI)
 struct FloatingPanelView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
+    
+    private var panelMinWidth: CGFloat {
+        if viewModel.lastLLMError != nil {
+            return 360
+        }
+        switch viewModel.appState {
+        case .enhancing:
+            return 320
+        case .recording:
+            return 360
+        default:
+            return 260
+        }
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -106,7 +120,9 @@ struct FloatingPanelView: View {
 
             // 顯示文字
             statusText
+                .layoutPriority(1)
         }
+        .frame(minWidth: panelMinWidth, maxWidth: 560, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(
@@ -152,6 +168,13 @@ struct FloatingPanelView: View {
                 .font(.system(size: 20))
                 .foregroundColor(.white)
                 .symbolEffect(.rotate, isActive: true)
+
+        case .enhancing:
+            // LLM 增強中：閃電動畫
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 20))
+                .foregroundColor(.white)
+                .symbolEffect(.variableColor.iterative.reversing, isActive: true)
         }
     }
 
@@ -179,13 +202,29 @@ struct FloatingPanelView: View {
             Text(viewModel.transcribedText.isEmpty ? "聆聽中..." : viewModel.transcribedText)
                 .foregroundColor(.white)
                 .font(.system(size: 14, weight: .medium))
-                .lineLimit(1)
-                .frame(maxWidth: 200, alignment: .leading)
+                .lineLimit(2)
+                .frame(maxWidth: 300, alignment: .leading)
 
         case .transcribing:
             Text("轉寫中...")
                 .foregroundColor(.white)
                 .font(.system(size: 14, weight: .medium))
+                .frame(maxWidth: 300, alignment: .leading)
+
+        case .enhancing:
+            VStack(alignment: .leading, spacing: 2) {
+                Text("增強中...")
+                    .foregroundColor(.white)
+                    .font(.system(size: 14, weight: .medium))
+                    .lineLimit(1)
+                if !viewModel.transcribedText.isEmpty {
+                    Text(viewModel.transcribedText)
+                        .foregroundColor(.white.opacity(0.7))
+                        .font(.system(size: 12))
+                        .lineLimit(2)
+                }
+            }
+            .frame(minWidth: 220, maxWidth: 420, alignment: .leading)
         }
     }
 
@@ -203,7 +242,7 @@ struct FloatingPanelView: View {
                     .lineLimit(2)
             }
         }
-        .frame(maxWidth: 220, alignment: .leading)
+        .frame(maxWidth: 320, alignment: .leading)
     }
 
     /// 背景顏色根據狀態變化
@@ -220,6 +259,8 @@ struct FloatingPanelView: View {
             return Color.black.opacity(0.75)
         case .transcribing:
             return Color.black.opacity(0.75)
+        case .enhancing:
+            return Color.blue.opacity(0.85)
         }
     }
 }

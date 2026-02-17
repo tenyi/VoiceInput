@@ -95,12 +95,16 @@ models/  # 取消註解以忽略整個 models 目錄
 # ===========================================
 # 開發工具配置 (可選)
 # ===========================================
-.agent/          # Claude Code 數據
-.claude/         # Claude Code 設置
-.kilocode/       # Kilocode 工具
+# Claude Code 數據
+.agent/
+# Claude Code 設置
+.claude/
+# Kilocode 工具
 .kilocode/
-.serena/         # Serena 工具
-.venv/           # Python 虛擬環境
+# Serena 工具
+.serena/
+# Python 虛擬環境
+.venv/
 
 # ===========================================
 # 個人筆記與文檔 (可選)

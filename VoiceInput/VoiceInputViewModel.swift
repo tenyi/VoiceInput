@@ -49,6 +49,7 @@ enum AppState {
     case idle       // 待機中
     case recording  // 錄音中（按住 hotkey）
     case transcribing // 轉寫中
+    case enhancing  // LLM 增強中
 }
 
 /// 單筆轉錄歷史紀錄
@@ -858,8 +859,11 @@ class VoiceInputViewModel: ObservableObject {
         // 有有效文字的情況
         if hasValidText {
             if llmEnabled {
-                // 啟用 LLM 修正：進行修正後再插入
+                // 啟用 LLM 修正：設置為增強中狀態
+                appState = .enhancing
+
                 performLLMCorrection { [weak self] in
+                    self?.appState = .transcribing
                     self?.proceedToInsertAndHide()
                 }
             } else {
