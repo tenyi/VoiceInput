@@ -754,10 +754,13 @@ class VoiceInputViewModel: ObservableObject {
                      logger.info("正在初始化 Whisper 服務，模型路徑: \(modelURL.path)")
 
                      // 創建 WhisperTranscriptionService，它會自己管理 security-scoped resource
-                     transcriptionService = WhisperTranscriptionService(modelURL: modelURL)
+                     transcriptionService = WhisperTranscriptionService(
+                         modelURL: modelURL,
+                         language: selectedLanguage
+                     )
 
                      // 檢查是否創建成功
-                     if let whisperService = transcriptionService as? WhisperTranscriptionService {
+                     if transcriptionService is WhisperTranscriptionService {
                          logger.info("WhisperTranscriptionService 創建成功")
                      } else {
                          logger.error("WhisperTranscriptionService 創建失敗")

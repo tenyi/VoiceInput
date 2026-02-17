@@ -7,7 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		2B4632242F41E6C90000C48A /* SwiftWhisper in Frameworks */ = {isa = PBXBuildFile; productRef = 2B4632232F41E6C90000C48A /* SwiftWhisper */; };
+		2B7A10022F45000100AAA001 /* whisper.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B7A10012F45000100AAA001 /* whisper.xcframework */; };
+		2B7A10032F45000100AAA001 /* whisper.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2B7A10012F45000100AAA001 /* whisper.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,10 +28,25 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		2B7A10042F45000100AAA001 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				2B7A10032F45000100AAA001 /* whisper.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		2B15AB092F4028F800780465 /* VoiceInput.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoiceInput.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B15AB182F4028FA00780465 /* VoiceInputTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceInputTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B15AB222F4028FA00780465 /* VoiceInputUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoiceInputUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2B7A10012F45000100AAA001 /* whisper.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = whisper.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -56,7 +72,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2B4632242F41E6C90000C48A /* SwiftWhisper in Frameworks */,
+				2B7A10022F45000100AAA001 /* whisper.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -101,6 +117,7 @@
 		2B4632222F41E6C90000C48A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				2B7A10012F45000100AAA001 /* whisper.xcframework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -115,6 +132,7 @@
 				2B15AB052F4028F800780465 /* Sources */,
 				2B15AB062F4028F800780465 /* Frameworks */,
 				2B15AB072F4028F800780465 /* Resources */,
+				2B7A10042F45000100AAA001 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -125,7 +143,6 @@
 			);
 			name = VoiceInput;
 			packageProductDependencies = (
-				2B4632232F41E6C90000C48A /* SwiftWhisper */,
 			);
 			productName = VoiceInput;
 			productReference = 2B15AB092F4028F800780465 /* VoiceInput.app */;
@@ -210,7 +227,6 @@
 			mainGroup = 2B15AB002F4028F800780465;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				2B4632212F41E5D90000C48A /* XCLocalSwiftPackageReference "SwiftWhisper" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2B15AB0A2F4028F800780465 /* Products */;
@@ -630,21 +646,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		2B4632212F41E5D90000C48A /* XCLocalSwiftPackageReference "SwiftWhisper" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = SwiftWhisper;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		2B4632232F41E6C90000C48A /* SwiftWhisper */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 2B4632212F41E5D90000C48A /* XCLocalSwiftPackageReference "SwiftWhisper" */;
-			productName = SwiftWhisper;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2B15AB012F4028F800780465 /* Project object */;
 }
