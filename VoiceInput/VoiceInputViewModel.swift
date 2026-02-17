@@ -12,6 +12,36 @@ enum LLMProvider: String, CaseIterable {
     case anthropic = "Anthropic"
     case ollama = "Ollama"
     case custom = "自訂 API"
+
+    /// 是否為內建 Provider
+    var isBuiltIn: Bool {
+        return self != .custom
+    }
+}
+
+// MARK: - 自訂 LLM Provider
+/// 自訂 LLM Provider 配置（用於儲存用戶添加的 Provider）
+struct CustomLLMProvider: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String           // 顯示名稱（如 "Qwen", "Kimi"）
+    var apiURL: String        // API 端點 URL
+    var apiKey: String        // API Key
+    var model: String         // 模型名稱
+    var prompt: String        // 自訂提示詞（可選）
+
+    init(id: UUID = UUID(), name: String, apiURL: String, apiKey: String = "", model: String = "", prompt: String = "") {
+        self.id = id
+        self.name = name
+        self.apiURL = apiURL
+        self.apiKey = apiKey
+        self.model = model
+        self.prompt = prompt
+    }
+
+    /// 顯示名稱
+    var displayName: String {
+        return name
+    }
 }
 
 /// 應用程式狀態
@@ -194,12 +224,97 @@ class VoiceInputViewModel: ObservableObject {
     /// 可選快捷鍵清單
     let availableHotkeys = HotkeyOption.allCases
 
-    /// 可用的 LLM Provider 清單
-    let availableLLMProviders = LLMProvider.allCases
+    // MARK: - 自訂 LLM Provider 管理
+
+    /// 自訂 Provider 列表（儲存多個用戶添加的 Provider）
+    @AppStorage("customLLMProviders") private var customProvidersData: Data = Data()
+    @Published var customProviders: [CustomLLMProvider] = []
+
+    /// 目前選擇的自訂 Provider ID（若選擇內建 Provider 則為 nil）
+    @AppStorage("selectedCustomProviderId") var selectedCustomProviderId: String?
 
     /// 取得目前的 LLM Provider
     var currentLLMProvider: LLMProvider {
-        LLMProvider(rawValue: llmProvider) ?? .openAI
+        // 如果有選擇自訂 Provider，使用自訂 API 類型
+        if selectedCustomProviderId != nil {
+            return .custom
+        }
+        return LLMProvider(rawValue: llmProvider) ?? .openAI
+    }
+
+    /// 取得目前選擇的自訂 Provider（若無則返回 nil）
+    var selectedCustomProvider: CustomLLMProvider? {
+        guard let idString = selectedCustomProviderId,
+              let uuid = UUID(uuidString: idString) else {
+            return nil
+        }
+        return customProviders.first { $0.id == uuid }
+    }
+
+    /// 取得所有可用的 Provider 顯示名稱列表（包含內建和自訂）
+    var allProviderDisplayNames: [String] {
+        var names: [String] = []
+        // 內建 Provider
+        for provider in LLMProvider.allCases {
+            names.append(provider.rawValue)
+        }
+        // 自訂 Provider
+        for custom in customProviders {
+            names.append(custom.displayName)
+        }
+        return names
+    }
+
+    /// 儲存自訂 Provider 列表
+    private func saveCustomProviders() {
+        do {
+            customProvidersData = try JSONEncoder().encode(customProviders)
+        } catch {
+            logger.error("無法保存自訂 Provider 列表: \(error.localizedDescription)")
+        }
+    }
+
+    /// 載入自訂 Provider 列表
+    private func loadCustomProviders() {
+        guard !customProvidersData.isEmpty else { return }
+        do {
+            customProviders = try JSONDecoder().decode([CustomLLMProvider].self, from: customProvidersData)
+            logger.info("已載入 \(self.customProviders.count) 個自訂 Provider")
+        } catch {
+            logger.error("無法載入自訂 Provider 列表: \(error.localizedDescription)")
+        }
+    }
+
+    /// 添加新的自訂 Provider
+    func addCustomProvider(_ provider: CustomLLMProvider) {
+        customProviders.append(provider)
+        saveCustomProviders()
+        logger.info("已添加自訂 Provider: \(provider.name)")
+    }
+
+    /// 更新自訂 Provider
+    func updateCustomProvider(_ provider: CustomLLMProvider) {
+        if let index = customProviders.firstIndex(where: { $0.id == provider.id }) {
+            customProviders[index] = provider
+            saveCustomProviders()
+            logger.info("已更新自訂 Provider: \(provider.name)")
+        }
+    }
+
+    /// 刪除自訂 Provider
+    func deleteCustomProvider(_ provider: CustomLLMProvider) {
+        customProviders.removeAll { $0.id == provider.id }
+        // 如果刪除的是當前選擇的 Provider，清除選擇
+        if selectedCustomProviderId == provider.id.uuidString {
+            selectedCustomProviderId = nil
+        }
+        saveCustomProviders()
+        logger.info("已刪除自訂 Provider: \(provider.name)")
+    }
+
+    /// 清除目前選擇的 Provider（切回內建 Provider）
+    func clearSelectedProvider() {
+        selectedCustomProviderId = nil
     }
 
     /// 取得目前的語音辨識引擎
@@ -212,6 +327,7 @@ class VoiceInputViewModel: ObservableObject {
 
     init() {
         loadLLMAPIKey()
+        loadCustomProviders()  // 載入自訂 Provider 列表
         loadImportedModels()
         setupAudioEngine()
         setupHotkeys()

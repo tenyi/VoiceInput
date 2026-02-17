@@ -12,29 +12,31 @@ struct SettingsView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
 
     var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem {
-                    Label("一般", systemImage: "gear")
-                }
+        ScrollView {
+            TabView {
+                GeneralSettingsView()
+                    .tabItem {
+                        Label("一般", systemImage: "gear")
+                    }
 
-            TranscriptionSettingsView()
-                .tabItem {
-                    Label("轉錄", systemImage: "text.bubble")
-                }
+                TranscriptionSettingsView()
+                    .tabItem {
+                        Label("轉錄", systemImage: "text.bubble")
+                    }
 
-            ModelSettingsView()
-                .tabItem {
-                    Label("模型", systemImage: "cpu")
-                }
+                ModelSettingsView()
+                    .tabItem {
+                        Label("模型", systemImage: "cpu")
+                    }
 
-            LLMSettingsView()
-                .tabItem {
-                    Label("LLM", systemImage: "brain")
-                }
+                LLMSettingsView()
+                    .tabItem {
+                        Label("LLM", systemImage: "brain")
+                    }
+            }
+            .frame(minWidth: 460, minHeight: 350)
+            .padding()
         }
-        .frame(width: 480, height: 430)
-        .padding()
     }
 }
 
@@ -418,8 +420,22 @@ struct LLMSettingsView: View {
 
     /// 目前的 provider (從字串轉換)
     @State private var selectedProvider: LLMProvider = .openAI
+    /// 目前選擇的自訂 Provider（若無則為 nil）
+    @State private var selectedCustomProvider: CustomLLMProvider?
+    /// 是否正在編輯自訂 Provider
+    @State private var isEditingCustomProvider: Bool = false
+    /// 顯示新增自訂 Provider 的表單
+    @State private var showingAddCustomProvider: Bool = false
     /// Prompt 文字 (用於編輯，若有自訂則顯示自訂值，否則顯示預設值)
     @State private var promptText: String = ""
+
+    /// 目前的 provider 顯示名稱（包含內建和自訂）
+    private var currentProviderDisplayName: String {
+        if let custom = selectedCustomProvider {
+            return custom.displayName
+        }
+        return selectedProvider.rawValue
+    }
 
     // 測試相關狀態
     @State private var isTesting: Bool = false
@@ -467,52 +483,136 @@ struct LLMSettingsView: View {
 
             // Provider 選擇
             Section {
-                Picker("服務提供者", selection: $selectedProvider) {
-                    ForEach(viewModel.availableLLMProviders, id: \.self) { provider in
-                        Text(provider.rawValue).tag(provider)
+                Picker("服務提供者", selection: Binding(
+                    get: { currentProviderDisplayName },
+                    set: { newValue in
+                        // 檢查是否是自訂 Provider（名稱存在於自訂列表中）
+                        if let customProvider = viewModel.customProviders.first(where: { $0.name == newValue || $0.displayName == newValue }) {
+                            selectedCustomProvider = customProvider
+                            selectedProvider = .custom
+                        } else {
+                            // 內建 Provider
+                            selectedProvider = LLMProvider(rawValue: newValue) ?? .openAI
+                            selectedCustomProvider = nil
+                            viewModel.llmProvider = selectedProvider.rawValue
+                        }
+                    }
+                )) {
+                    // 內建 Provider
+                    Section("內建") {
+                        ForEach(LLMProvider.allCases, id: \.self) { provider in
+                            Text(provider.rawValue).tag(provider.rawValue)
+                        }
+                    }
+                    // 自訂 Provider
+                    if !viewModel.customProviders.isEmpty {
+                        Section("自訂") {
+                            ForEach(viewModel.customProviders) { provider in
+                                Text(provider.displayName).tag(provider.displayName)
+                            }
+                        }
                     }
                 }
                 .pickerStyle(.menu)
-                .onChange(of: selectedProvider) { _, newValue in
-                    viewModel.llmProvider = newValue.rawValue
+
+                // 管理自訂 Provider 按鈕
+                Button(action: { showingAddCustomProvider = true }) {
+                    Label("管理自訂 Provider", systemImage: "plus.circle")
                 }
+                .buttonStyle(.link)
             } header: {
                 Text("Provider")
+            } footer: {
+                Text("選擇 Provider 後可在此設定 API Key、模型等參數")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             // 根據不同 provider 顯示不同輸入欄位
             Section {
-                // 模型名稱 (所有 provider 都需要)
-                TextField("模型名稱", text: $viewModel.llmModel)
-                    .textFieldStyle(.roundedBorder)
-
-                // OpenAI / Anthropic 需要 API Key
-                if selectedProvider == .openAI || selectedProvider == .anthropic {
-                    SecureField("API Key", text: $viewModel.llmAPIKey)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                // Ollama 需要 URL
-                if selectedProvider == .ollama {
-                    TextField("API URL", text: $viewModel.llmURL)
-                        .textFieldStyle(.roundedBorder)
-                        .onAppear {
-                            if viewModel.llmURL.isEmpty {
-                                viewModel.llmURL = "http://localhost:11434"
+                // 自訂 Provider 的設定
+                if let custom = selectedCustomProvider {
+                    // 顯示自訂 Provider 的資訊（唯讀）
+                    Group {
+                        Text("Provider: \(custom.name)")
+                            .font(.headline)
+                        TextField("API URL", text: Binding(
+                            get: { custom.apiURL },
+                            set: { newValue in
+                                var updated = custom
+                                updated.apiURL = newValue
+                                viewModel.updateCustomProvider(updated)
+                                selectedCustomProvider = updated
                             }
-                        }
-                }
-
-                // 自訂 API 需要 URL 和 API Key
-                if selectedProvider == .custom {
-                    TextField("API URL", text: $viewModel.llmURL)
+                        ))
                         .textFieldStyle(.roundedBorder)
 
-                    SecureField("API Key (可選)", text: $viewModel.llmAPIKey)
+                        SecureField("API Key", text: Binding(
+                            get: { custom.apiKey },
+                            set: { newValue in
+                                var updated = custom
+                                updated.apiKey = newValue
+                                viewModel.updateCustomProvider(updated)
+                                selectedCustomProvider = updated
+                            }
+                        ))
                         .textFieldStyle(.roundedBorder)
+
+                        TextField("模型名稱", text: Binding(
+                            get: { custom.model },
+                            set: { newValue in
+                                var updated = custom
+                                updated.model = newValue
+                                viewModel.updateCustomProvider(updated)
+                                selectedCustomProvider = updated
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                    }
+
+                    // 刪除按鈕
+                    Button(role: .destructive, action: {
+                        viewModel.deleteCustomProvider(custom)
+                        selectedCustomProvider = nil
+                        selectedProvider = .openAI
+                    }) {
+                        Label("刪除此 Provider", systemImage: "trash")
+                    }
+                    .buttonStyle(.link)
+                } else {
+                    // 內建 Provider 的設定
+                    // 模型名稱 (所有 provider 都需要)
+                    TextField("模型名稱", text: $viewModel.llmModel)
+                        .textFieldStyle(.roundedBorder)
+
+                    // OpenAI / Anthropic 需要 API Key
+                    if selectedProvider == .openAI || selectedProvider == .anthropic {
+                        SecureField("API Key", text: $viewModel.llmAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    // Ollama 需要 URL
+                    if selectedProvider == .ollama {
+                        TextField("API URL", text: $viewModel.llmURL)
+                            .textFieldStyle(.roundedBorder)
+                            .onAppear {
+                                if viewModel.llmURL.isEmpty {
+                                    viewModel.llmURL = "http://localhost:11434/v1/chat/completions"
+                                }
+                            }
+                    }
+
+                    // 自訂 API 需要 URL 和 API Key
+                    if selectedProvider == .custom {
+                        TextField("API URL", text: $viewModel.llmURL)
+                            .textFieldStyle(.roundedBorder)
+
+                        SecureField("API Key (可選)", text: $viewModel.llmAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
             } header: {
-                Text("API 設定")
+                Text(selectedCustomProvider != nil ? "自訂 Provider 設定" : "API 設定")
             }
 
             // Prompt 設定
@@ -631,9 +731,126 @@ struct LLMSettingsView: View {
         .onAppear {
             // 載入已儲存的 provider
             selectedProvider = viewModel.currentLLMProvider
+            // 載入自訂 Provider
+            if let customProvider = viewModel.selectedCustomProvider {
+                selectedCustomProvider = customProvider
+            }
             // 載入 Prompt，若有自訂則使用自訂值，否則使用預設值顯示
             promptText = viewModel.llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : viewModel.llmPrompt
         }
+        .sheet(isPresented: $showingAddCustomProvider) {
+            AddCustomProviderSheet(viewModel: viewModel) { newProvider in
+                viewModel.addCustomProvider(newProvider)
+                // 自動選中新添加的 Provider
+                selectedCustomProvider = newProvider
+                selectedProvider = .custom
+            }
+        }
+    }
+}
+
+// MARK: - 新增自訂 Provider  Sheet
+/// 新增自訂 Provider 的表單
+struct AddCustomProviderSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let viewModel: VoiceInputViewModel
+    let onAdd: (CustomLLMProvider) -> Void
+
+    @State private var name: String = ""
+    @State private var apiURL: String = ""
+    @State private var apiKey: String = ""
+    @State private var model: String = ""
+    @State private var prompt: String = ""
+    @State private var selectedTemplate: String = ""
+
+    // 預設範本
+    private let providerTemplates: [(name: String, url: String, model: String)] = [
+        ("Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-turbo"),
+        ("Kimi", "https://api.moonshot.cn/v1", "moonshot-v1-8k-preview"),
+        ("GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"),
+        ("DeepSeek", "https://api.deepseek.com/v1", "deepseek-chat"),
+        ("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini"),
+        ("本地 Ollama", "http://localhost:11434/v1/chat/completions", "gemma3:4b")
+    ]
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("Provider 資訊") {
+                    TextField("顯示名稱", text: $name)
+                        .textFieldStyle(.roundedBorder)
+
+                    // 快速範本選擇
+                    Picker("快速範本", selection: $selectedTemplate) {
+                        Text("選擇範本...").tag("")
+                        ForEach(providerTemplates, id: \.name) { template in
+                            Text(template.name).tag(template.name)
+                        }
+                    }
+                    .onChange(of: selectedTemplate) { _, newValue in
+                        // 當選擇範本時自動填入
+                        if !newValue.isEmpty, let template = providerTemplates.first(where: { $0.name == newValue }) {
+                            name = template.name
+                            apiURL = template.url
+                            model = template.model
+                            // 重置選擇，方便下次再次選擇
+                            selectedTemplate = ""
+                        }
+                    }
+                }
+
+                Section("API 設定") {
+                    TextField("API URL", text: $apiURL)
+                        .textFieldStyle(.roundedBorder)
+
+                    SecureField("API Key", text: $apiKey)
+                        .textFieldStyle(.roundedBorder)
+
+                    TextField("模型名稱", text: $model)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                Section("提示詞（可選）") {
+                    TextEditor(text: $prompt)
+                        .frame(height: 60)
+                        .font(.system(.body, design: .monospaced))
+                }
+
+                Section {
+                    Button(action: addProvider) {
+                        Text("新增 Provider")
+                    }
+                    .disabled(!isValid)
+                }
+            }
+            .navigationTitle("新增自訂 Provider")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+            }
+            .frame(minWidth: 480, minHeight: 450)
+        }
+        .frame(minWidth: 480, minHeight: 450)
+    }
+
+    private var isValid: Bool {
+        !name.isEmpty && !apiURL.isEmpty && !model.isEmpty
+    }
+
+    private func addProvider() {
+        let provider = CustomLLMProvider(
+            name: name,
+            apiURL: apiURL,
+            apiKey: apiKey,
+            model: model,
+            prompt: prompt
+        )
+        onAdd(provider)
+        dismiss()
     }
 }
 
