@@ -64,8 +64,10 @@ Carthage/Checkouts/
 # Whisper 模型檔案 (.bin)
 *.bin
 
+*.m4a
+
 # 模型下載目錄 (如果有)
-# models/  # 取消註解以忽略整個 models 目錄
+models/  # 取消註解以忽略整個 models 目錄
 
 # 用戶數據
 *.mlmodel
@@ -108,6 +110,7 @@ TODO-CodeReview.md
 AGENTS.md~
 GoldenMicrophone.png
 generate_icon.py
+TODO*.md
 
 # ===========================================
 # IDE 配置
