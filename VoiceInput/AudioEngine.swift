@@ -3,6 +3,7 @@ import Speech
 import Combine
 import AVFAudio
 import os
+import CoreAudio
 
 /// 負責處理麥克風輸入與權限管理的音訊引擎
 /// This class handles microphone input and permission management.
@@ -201,10 +202,102 @@ class AudioEngine: ObservableObject {
     }
 
     /// 設置輸入設備
+    /// 使用 Core Audio API 將指定的設備設置為系統默認輸入設備
     private func setInputDevice(_ device: AVCaptureDevice) {
-        // 在 macOS 上，AVAudioEngine 的 inputNode 設備設置比較複雜
-        // 這裡我們記錄選擇的設備名稱，用於調試
-        logger.info("選擇的輸入設備: \(device.localizedName)")
+        // 獲取所有音訊設備並查找匹配的設備 ID
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var dataSize: UInt32 = 0
+        var status = AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &dataSize
+        )
+
+        guard status == noErr else {
+            logger.error("無法獲取音訊設備列表大小，錯誤碼: \(status)")
+            return
+        }
+
+        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var devices = [AudioDeviceID](repeating: 0, count: deviceCount)
+
+        status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &propertyAddress,
+            0,
+            nil,
+            &dataSize,
+            &devices
+        )
+
+        guard status == noErr else {
+            logger.error("無法獲取音訊設備列表，錯誤碼: \(status)")
+            return
+        }
+
+        // 查找匹配的設備 ID
+        var targetDeviceID: AudioDeviceID = 0
+
+        for dev in devices {
+            // 獲取設備名稱
+            var namePropertyAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceNameCFString,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+
+            var deviceName: CFString = "" as CFString
+            var nameSize = UInt32(MemoryLayout<CFString>.size)
+
+            let nameStatus = AudioObjectGetPropertyData(
+                dev,
+                &namePropertyAddress,
+                0,
+                nil,
+                &nameSize,
+                &deviceName
+            )
+
+            if nameStatus == noErr && deviceName == device.localizedName as CFString {
+                targetDeviceID = dev
+                break
+            }
+        }
+
+        guard targetDeviceID != 0 else {
+            logger.warning("找不到匹配的音訊設備: \(device.localizedName)")
+            return
+        }
+
+        // 設置為系統默認輸入設備
+        var defaultInputPropertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        var mutableDeviceID = targetDeviceID
+        status = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &defaultInputPropertyAddress,
+            0,
+            nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size),
+            &mutableDeviceID
+        )
+
+        if status == noErr {
+            logger.info("已成功切換輸入設備: \(device.localizedName)")
+        } else {
+            logger.error("無法切換輸入設備: \(device.localizedName), 錯誤碼: \(status)")
+        }
     }
 
     /// 停止錄音
