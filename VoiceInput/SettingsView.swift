@@ -12,29 +12,36 @@ struct SettingsView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
 
     var body: some View {
-        TabView {
-            GeneralSettingsView()
-                .tabItem {
-                    Label("一般", systemImage: "gear")
-                }
+        ScrollView {
+            TabView {
+                GeneralSettingsView()
+                    .tabItem {
+                        Label("一般", systemImage: "gear")
+                    }
 
-            TranscriptionSettingsView()
-                .tabItem {
-                    Label("轉錄", systemImage: "text.bubble")
-                }
+                TranscriptionSettingsView()
+                    .tabItem {
+                        Label("轉錄", systemImage: "text.bubble")
+                    }
 
-            ModelSettingsView()
-                .tabItem {
-                    Label("模型", systemImage: "cpu")
-                }
+                ModelSettingsView()
+                    .tabItem {
+                        Label("模型", systemImage: "cpu")
+                    }
 
-            LLMSettingsView()
-                .tabItem {
-                    Label("LLM", systemImage: "brain")
-                }
+                LLMSettingsView()
+                    .tabItem {
+                        Label("LLM", systemImage: "brain")
+                    }
+
+                HistorySettingsView()
+                    .tabItem {
+                        Label("歷史", systemImage: "clock.arrow.circlepath")
+                    }
+            }
+            .frame(minWidth: 460, minHeight: 350)
+            .padding()
         }
-        .frame(width: 450, height: 320)
-        .padding()
     }
 }
 
@@ -87,6 +94,35 @@ struct GeneralSettingsView: View {
                 Text("權限狀態")
             } footer: {
                 Text("點擊任一項目可查看或設定權限")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            // 音訊輸入設備選擇
+            Section {
+                Picker("輸入設備", selection: Binding(
+                    get: { viewModel.selectedInputDeviceID },
+                    set: { viewModel.selectedInputDeviceID = $0 }
+                )) {
+                    ForEach(viewModel.availableInputDevices) { device in
+                        Text(device.name).tag(device.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onAppear {
+                    viewModel.refreshAudioDevices()
+                }
+
+                Button(action: {
+                    viewModel.refreshAudioDevices()
+                }) {
+                    Label("重新整理設備", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.link)
+            } header: {
+                Text("音訊輸入")
+            } footer: {
+                Text("選擇要用於語音輸入的麥克風設備")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -163,7 +199,7 @@ struct ModelSettingsView: View {
                     get: { viewModel.currentSpeechEngine },
                     set: { viewModel.selectedSpeechEngine = $0.rawValue }
                 )) {
-                    ForEach(VoiceInputViewModel.SpeechRecognitionEngine.allCases) { engine in
+                    ForEach(SpeechRecognitionEngine.allCases) { engine in
                         Text(engine.rawValue).tag(engine)
                     }
                 }
@@ -183,26 +219,203 @@ struct ModelSettingsView: View {
             }
 
             if viewModel.currentSpeechEngine == .whisper {
-                Section {
-                    HStack {
-                        TextField("模型檔案路徑 (.bin)", text: $viewModel.whisperModelPath)
-                        
-                        Button("瀏覽...") {
-                            viewModel.selectModelFile()
-                        }
-                    }
-                } header: {
-                    Text("Whisper 模型路徑")
-                } footer: {
-                    if viewModel.whisperModelPath.isEmpty {
-                        Text("請選擇 Whisper 模型檔案 (.bin)")
+                // 匯入進度顯示
+                if viewModel.isImportingModel {
+                    Section {
+                        VStack(spacing: 12) {
+                            // 進度條
+                            ProgressView(value: viewModel.modelImportProgress) {
+                                Text("正在匯入模型...")
+                                    .font(.headline)
+                            }
+                            .progressViewStyle(.linear)
+
+                            // 進度百分比
+                            Text("\(Int(viewModel.modelImportProgress * 100))%")
+                                .font(.title2)
+                                .fontWeight(.medium)
+
+                            // 速度和剩餘時間
+                            HStack(spacing: 16) {
+                                if !viewModel.modelImportSpeed.isEmpty {
+                                    Label(viewModel.modelImportSpeed, systemImage: "speedometer")
+                                }
+
+                                if !viewModel.modelImportRemainingTime.isEmpty {
+                                    Label(viewModel.modelImportRemainingTime, systemImage: "clock")
+                                }
+                            }
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 8)
+                    } header: {
+                        Text("匯入進度")
                     }
                 }
+
+                // 錯誤訊息顯示
+                if let error = viewModel.modelImportError {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .font(.callout)
+                    } header: {
+                        Text("錯誤")
+                    }
+                }
+
+                // 已導入的模型列表
+                Section {
+                    if viewModel.importedModels.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "cube.box")
+                                .font(.system(size: 32))
+                                .foregroundColor(.secondary)
+                            Text("尚未導入任何模型")
+                                .foregroundColor(.secondary)
+                            Text("點擊下方按鈕匯入 Whisper 模型")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                    } else {
+                        ForEach(viewModel.importedModels, id: \.fileName) { model in
+                            ModelRowView(
+                                model: model,
+                                isSelected: viewModel.whisperModelPath.contains(model.fileName),
+                                modelsDirectory: viewModel.publicModelsDirectory,
+                                onSelect: { viewModel.selectImportedModel(model) },
+                                onDelete: { viewModel.deleteModel(model) },
+                                onShowInFinder: { viewModel.showModelInFinder(model) }
+                            )
+                        }
+                    }
+
+                    // 導入按鈕
+                    Button(action: {
+                        viewModel.importModel()
+                    }) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("匯入模型...")
+                        }
+                    }
+                    .disabled(viewModel.isImportingModel)
+                } header: {
+                    HStack {
+                        Text("已導入的模型")
+                        Spacer()
+                        if !viewModel.importedModels.isEmpty {
+                            Text("\(viewModel.importedModels.count) 個")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text("點擊模型名稱選擇使用，點擊刪除圖示移除模型")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
             }
         }
         .padding()
+    }
+}
+
+/// 模型列表行視圖
+struct ModelRowView: View {
+    let model: ImportedModel
+    let isSelected: Bool
+    let modelsDirectory: URL
+    let onSelect: () -> Void
+    let onDelete: () -> Void
+    let onShowInFinder: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // 模型圖示
+            Image(systemName: "cpu.fill")
+                .font(.title2)
+                .foregroundColor(isSelected ? .green : .secondary)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 4) {
+                // 模型名稱和類型標籤
+                HStack(spacing: 8) {
+                    Text(model.name)
+                        .font(.body)
+                        .fontWeight(.medium)
+
+                    // 模型類型標籤
+                    Text(model.inferredModelType)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.15))
+                        .foregroundColor(.blue)
+                        .cornerRadius(4)
+                }
+
+                // 檔案大小和匯入日期
+                HStack(spacing: 8) {
+                    // 檔案大小
+                    Label(model.fileSizeFormatted, systemImage: "externaldrive")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    // 匯入日期
+                    if let importDate = model.importDate as Date? {
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        Text(importDate.formatted(date: .abbreviated, time: .omitted))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // 檔案存在狀態
+                if !model.fileExists(in: modelsDirectory) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("檔案不存在")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+
+            Spacer()
+
+            // 選中狀態
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.title3)
+            }
+
+            // 在 Finder 中顯示
+            Button(action: onShowInFinder) {
+                Image(systemName: "folder")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("在 Finder 中顯示")
+
+            // 刪除按鈕
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.plain)
+            .help("刪除模型")
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
     }
 }
 
@@ -212,8 +425,75 @@ struct LLMSettingsView: View {
 
     /// 目前的 provider (從字串轉換)
     @State private var selectedProvider: LLMProvider = .openAI
+    /// 目前選擇的自訂 Provider（若無則為 nil）
+    @State private var selectedCustomProvider: CustomLLMProvider?
+    /// 是否正在編輯自訂 Provider
+    @State private var isEditingCustomProvider: Bool = false
+    /// 顯示新增自訂 Provider 的表單
+    @State private var showingAddCustomProvider: Bool = false
+    /// 顯示 Provider 管理介面
+    @State private var showingProviderManager: Bool = false
+    /// 顯示新增自訂 Provider 表單（從管理介面觸發）
+    @State private var showingAddFromManager: Bool = false
     /// Prompt 文字 (用於編輯，若有自訂則顯示自訂值，否則顯示預設值)
     @State private var promptText: String = ""
+
+    // 測試相關狀態
+    @State private var isTesting: Bool = false
+    @State private var testOutput: String = ""
+    @State private var testError: String = ""
+    @State private var testSucceeded: Bool = false
+
+    /// 測試文字
+    private let testInputText = "垂直致中，致中對齊"
+
+    /// 執行 LLM 測試
+    private func performLLMTest() {
+        isTesting = true
+        testOutput = ""
+        testError = ""
+        testSucceeded = false
+
+        viewModel.testLLM(text: testInputText) { result in
+            DispatchQueue.main.async { [self] in
+                isTesting = false
+                switch result {
+                case .success(let correctedText):
+                    testOutput = correctedText
+                    testSucceeded = true
+                case .failure(let error):
+                    testError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func applySelectedCustomProvider(_ provider: CustomLLMProvider) {
+        viewModel.saveCurrentBuiltInProviderSettings()
+        viewModel.saveCurrentBuiltInProviderAPIKey()
+        selectedCustomProvider = provider
+        selectedProvider = .custom
+        viewModel.selectedCustomProviderId = provider.id.uuidString
+        viewModel.llmProvider = LLMProvider.custom.rawValue
+        viewModel.llmURL = provider.apiURL
+        viewModel.llmAPIKey = provider.apiKey
+        viewModel.llmModel = provider.model
+        promptText = viewModel.llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : viewModel.llmPrompt
+    }
+
+    private func applyBuiltInProvider(_ provider: LLMProvider) {
+        if selectedCustomProvider == nil {
+            viewModel.saveCurrentBuiltInProviderSettings()
+            viewModel.saveCurrentBuiltInProviderAPIKey()
+        }
+        selectedProvider = provider
+        selectedCustomProvider = nil
+        viewModel.selectedCustomProviderId = nil
+        viewModel.llmProvider = provider.rawValue
+        viewModel.loadBuiltInProviderAPIKey(for: provider)
+        viewModel.loadBuiltInProviderSettings(for: provider)
+        promptText = viewModel.llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : viewModel.llmPrompt
+    }
 
     var body: some View {
         Form {
@@ -231,52 +511,142 @@ struct LLMSettingsView: View {
 
             // Provider 選擇
             Section {
-                Picker("服務提供者", selection: $selectedProvider) {
-                    ForEach(viewModel.availableLLMProviders, id: \.self) { provider in
-                        Text(provider.rawValue).tag(provider)
+                Picker("服務提供者", selection: Binding(
+                    get: {
+                        // 如果有選擇自訂 Provider，返回其 ID；否則返回內建 Provider 名稱
+                        if let custom = selectedCustomProvider {
+                            return custom.id.uuidString
+                        }
+                        return selectedProvider.rawValue
+                    },
+                    set: { newValue in
+                        // 檢查是否是自訂 Provider（UUID 格式）
+                        if let uuid = UUID(uuidString: newValue),
+                           let customProvider = viewModel.customProviders.first(where: { $0.id == uuid }) {
+                            applySelectedCustomProvider(customProvider)
+                        } else {
+                            // 內建 Provider
+                            applyBuiltInProvider(LLMProvider(rawValue: newValue) ?? .openAI)
+                        }
+                    }
+                )) {
+                    // 內建 Provider
+                    Section("內建") {
+                        ForEach(LLMProvider.allCases, id: \.self) { provider in
+                            Text(provider.rawValue).tag(provider.rawValue)
+                        }
+                    }
+                    // 自訂 Provider
+                    if !viewModel.customProviders.isEmpty {
+                        Section("自訂") {
+                            ForEach(viewModel.customProviders) { provider in
+                                Text(provider.displayName).tag(provider.id.uuidString)
+                            }
+                        }
                     }
                 }
                 .pickerStyle(.menu)
-                .onChange(of: selectedProvider) { _, newValue in
-                    viewModel.llmProvider = newValue.rawValue
+
+                // 管理自訂 Provider 按鈕
+                Button(action: { showingProviderManager = true }) {
+                    Label("管理自訂 Provider", systemImage: "folder.circle")
                 }
+                .buttonStyle(.link)
             } header: {
                 Text("Provider")
+            } footer: {
+                Text("選擇 Provider 後可在此設定 API Key、模型等參數")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             // 根據不同 provider 顯示不同輸入欄位
             Section {
-                // 模型名稱 (所有 provider 都需要)
-                TextField("模型名稱", text: $viewModel.llmModel)
-                    .textFieldStyle(.roundedBorder)
-
-                // OpenAI / Anthropic 需要 API Key
-                if selectedProvider == .openAI || selectedProvider == .anthropic {
-                    SecureField("API Key", text: $viewModel.llmAPIKey)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                // Ollama 需要 URL
-                if selectedProvider == .ollama {
-                    TextField("API URL", text: $viewModel.llmURL)
-                        .textFieldStyle(.roundedBorder)
-                        .onAppear {
-                            if viewModel.llmURL.isEmpty {
-                                viewModel.llmURL = "http://localhost:11434"
+                // 自訂 Provider 的設定
+                if let custom = selectedCustomProvider {
+                    // 顯示並編輯自訂 Provider 的資訊
+                    Group {
+                        Text("Provider: \(custom.name)")
+                            .font(.headline)
+                        TextField("API URL", text: Binding(
+                            get: { custom.apiURL },
+                            set: { newValue in
+                                var updated = custom
+                                updated.apiURL = newValue
+                                viewModel.updateCustomProvider(updated)
+                                selectedCustomProvider = updated
+                                viewModel.llmURL = newValue
                             }
-                        }
-                }
-
-                // 自訂 API 需要 URL 和 API Key
-                if selectedProvider == .custom {
-                    TextField("API URL", text: $viewModel.llmURL)
+                        ))
                         .textFieldStyle(.roundedBorder)
 
-                    SecureField("API Key (可選)", text: $viewModel.llmAPIKey)
+                        SecureField("API Key", text: Binding(
+                            get: { custom.apiKey },
+                            set: { newValue in
+                                var updated = custom
+                                updated.apiKey = newValue
+                                viewModel.updateCustomProvider(updated)
+                                selectedCustomProvider = updated
+                                viewModel.llmAPIKey = newValue
+                            }
+                        ))
                         .textFieldStyle(.roundedBorder)
+
+                        TextField("模型名稱", text: Binding(
+                            get: { custom.model },
+                            set: { newValue in
+                                var updated = custom
+                                updated.model = newValue
+                                viewModel.updateCustomProvider(updated)
+                                selectedCustomProvider = updated
+                                viewModel.llmModel = newValue
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                    }
+
+                    // 刪除按鈕
+                    Button(role: .destructive, action: {
+                        viewModel.deleteCustomProvider(custom)
+                        applyBuiltInProvider(.openAI)
+                    }) {
+                        Label("刪除此 Provider", systemImage: "trash")
+                    }
+                    .buttonStyle(.link)
+                } else {
+                    // 內建 Provider 的設定
+                    // 模型名稱 (所有 provider 都需要)
+                    TextField("模型名稱", text: $viewModel.llmModel)
+                        .textFieldStyle(.roundedBorder)
+
+                    // OpenAI / Anthropic 需要 API Key
+                    if selectedProvider == .openAI || selectedProvider == .anthropic {
+                        SecureField("API Key", text: $viewModel.llmAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    // Ollama 需要 URL
+                    if selectedProvider == .ollama {
+                        TextField("API URL", text: $viewModel.llmURL)
+                            .textFieldStyle(.roundedBorder)
+                            .onAppear {
+                                if viewModel.llmURL.isEmpty {
+                                    viewModel.llmURL = "http://localhost:11434/v1/chat/completions"
+                                }
+                            }
+                    }
+
+                    // 自訂 API 需要 URL 和 API Key
+                    if selectedProvider == .custom {
+                        TextField("API URL", text: $viewModel.llmURL)
+                            .textFieldStyle(.roundedBorder)
+
+                        SecureField("API Key (可選)", text: $viewModel.llmAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
             } header: {
-                Text("API 設定")
+                Text(selectedCustomProvider != nil ? "自訂 Provider 設定" : "API 設定")
             }
 
             // Prompt 設定
@@ -286,12 +656,8 @@ struct LLMSettingsView: View {
                     .frame(height: 80)
                     .font(.system(.body, design: .monospaced))
                     .onChange(of: promptText) { _, newValue in
-                        // 只有當值與預設不同時才儲存
-                        if newValue != VoiceInputViewModel.defaultLLMPrompt {
-                            viewModel.llmPrompt = newValue
-                        } else {
-                            viewModel.llmPrompt = ""
-                        }
+                        let valueToStore = newValue == VoiceInputViewModel.defaultLLMPrompt ? "" : newValue
+                        viewModel.llmPrompt = valueToStore
                     }
 
                 HStack {
@@ -320,14 +686,369 @@ struct LLMSettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+
+            // 測試區塊
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    // 測試按鈕
+                    Button(action: performLLMTest) {
+                        HStack {
+                            if isTesting {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("測試中...")
+                            } else {
+                                Image(systemName: "play.fill")
+                                Text("測試 LLM 設定")
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isTesting)
+
+                    // 測試結果顯示
+                    if !testInputText.isEmpty || !testOutput.isEmpty || !testError.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // 輸入文字
+                            Text("輸入文字：")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(testInputText)
+                                .font(.system(.body, design: .monospaced))
+                                .padding(8)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(6)
+                                .textSelection(.enabled)
+
+                            // 輸出文字
+                            if !testOutput.isEmpty {
+                                Text("輸出文字：")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(testOutput)
+                                    .font(.system(.body, design: .monospaced))
+                                    .padding(8)
+                                    .background(testSucceeded ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
+                                    .cornerRadius(6)
+                                    .textSelection(.enabled)
+                            }
+
+                            // 錯誤訊息
+                            if !testError.isEmpty {
+                                Text("錯誤：")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                                Text(testError)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.red)
+                                    .padding(8)
+                                    .background(Color.red.opacity(0.1))
+                                    .cornerRadius(6)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("測試 LLM")
+            } footer: {
+                Text("點擊測試按鈕驗證 LLM 設定是否正確")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .padding()
         .onAppear {
             // 載入已儲存的 provider
-            selectedProvider = viewModel.currentLLMProvider
-            // 載入 Prompt，若有自訂則使用自訂值，否則使用預設值顯示
-            promptText = viewModel.llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : viewModel.llmPrompt
+            if let customProvider = viewModel.selectedCustomProvider {
+                applySelectedCustomProvider(customProvider)
+            } else {
+                applyBuiltInProvider(viewModel.currentLLMProvider)
+            }
         }
+        .sheet(isPresented: $showingAddCustomProvider) {
+            AddCustomProviderSheet(viewModel: viewModel) { newProvider in
+                viewModel.addCustomProvider(newProvider)
+                // 自動選中新添加的 Provider
+                applySelectedCustomProvider(newProvider)
+            }
+        }
+        .sheet(isPresented: $showingProviderManager) {
+            ManageCustomProvidersSheet(
+                viewModel: viewModel,
+                onSelect: { provider in
+                    applySelectedCustomProvider(provider)
+                },
+                onDelete: { provider in
+                    // 如果刪除的是當前選中的 Provider，重置選擇
+                    if selectedCustomProvider?.id == provider.id {
+                        applyBuiltInProvider(.openAI)
+                    }
+                },
+                onAdd: {
+                    showingAddFromManager = true
+                }
+            )
+        }
+        .sheet(isPresented: $showingAddFromManager) {
+            AddCustomProviderSheet(viewModel: viewModel) { newProvider in
+                viewModel.addCustomProvider(newProvider)
+                // 自動選中新添加的 Provider
+                applySelectedCustomProvider(newProvider)
+            }
+        }
+    }
+}
+
+// MARK: - 歷史記錄設定視圖
+struct HistorySettingsView: View {
+    @EnvironmentObject var viewModel: VoiceInputViewModel
+
+    var body: some View {
+        Form {
+            Section {
+                if viewModel.transcriptionHistory.isEmpty {
+                    Text("目前沒有歷史輸入")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(viewModel.transcriptionHistory) { item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(item.createdAt.formatted(date: .omitted, time: .standard))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                Spacer()
+
+                                Button {
+                                    viewModel.copyHistoryText(item.text)
+                                } label: {
+                                    Label("複製", systemImage: "doc.on.doc")
+                                }
+                                .buttonStyle(.borderless)
+
+                                Button {
+                                    viewModel.deleteHistoryItem(item)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("刪除此筆紀錄")
+                            }
+
+                            Text(item.text)
+                                .font(.system(.body, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            } header: {
+                Text("最近 10 筆輸入")
+            } footer: {
+                Text("可快速複製或刪除歷史文字")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+    }
+}
+
+// MARK: - 新增自訂 Provider  Sheet
+/// 新增自訂 Provider 的表單
+struct AddCustomProviderSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let viewModel: VoiceInputViewModel
+    let onAdd: (CustomLLMProvider) -> Void
+
+    @State private var name: String = ""
+    @State private var apiURL: String = ""
+    @State private var apiKey: String = ""
+    @State private var model: String = ""
+    @State private var prompt: String = ""
+    @State private var selectedTemplate: String = ""
+
+    // 預設範本
+    private let providerTemplates: [(name: String, url: String, model: String)] = [
+        ("Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", "qwen-turbo"),
+        ("Kimi", "https://api.moonshot.com/v1/chat/completions", "moonshot-v1-8k-preview"),
+        ("GLM", "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-4.7-flash"),
+        ("DeepSeek", "https://api.deepseek.com/v1/chat/completions", "deepseek-chat"),
+        ("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", "openrouter/auto"),
+        ("本地 Ollama", "http://localhost:11434/v1/chat/completions", "gemma3:4b")
+    ]
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("Provider 資訊") {
+                    TextField("顯示名稱", text: $name)
+                        .textFieldStyle(.roundedBorder)
+
+                    // 快速範本選擇
+                    Picker("快速範本", selection: $selectedTemplate) {
+                        Text("選擇範本...").tag("")
+                        ForEach(providerTemplates, id: \.name) { template in
+                            Text(template.name).tag(template.name)
+                        }
+                    }
+                    .onChange(of: selectedTemplate) { _, newValue in
+                        // 當選擇範本時自動填入
+                        if !newValue.isEmpty, let template = providerTemplates.first(where: { $0.name == newValue }) {
+                            name = template.name
+                            apiURL = template.url
+                            model = template.model
+                            // 重置選擇，方便下次再次選擇
+                            selectedTemplate = ""
+                        }
+                    }
+                }
+
+                Section("API 設定") {
+                    TextField("API URL", text: $apiURL)
+                        .textFieldStyle(.roundedBorder)
+
+                    SecureField("API Key", text: $apiKey)
+                        .textFieldStyle(.roundedBorder)
+
+                    TextField("模型名稱", text: $model)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                Section("提示詞（可選）") {
+                    TextEditor(text: $prompt)
+                        .frame(height: 60)
+                        .font(.system(.body, design: .monospaced))
+                }
+
+                Section {
+                    Button(action: addProvider) {
+                        Text("新增 Provider")
+                    }
+                    .disabled(!isValid)
+                }
+            }
+            .navigationTitle("新增自訂 Provider")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+            }
+            .frame(minWidth: 480, minHeight: 450)
+        }
+        .frame(minWidth: 480, minHeight: 450)
+    }
+
+    private var isValid: Bool {
+        !name.isEmpty && !apiURL.isEmpty && !model.isEmpty
+    }
+
+    private func addProvider() {
+        let provider = CustomLLMProvider(
+            name: name,
+            apiURL: apiURL,
+            apiKey: apiKey,
+            model: model,
+            prompt: prompt
+        )
+        onAdd(provider)
+        dismiss()
+    }
+}
+
+// MARK: - 管理自訂 Provider Sheet
+/// 管理已新增的自訂 Provider（檢視、刪除）
+struct ManageCustomProvidersSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var viewModel: VoiceInputViewModel
+
+    let onSelect: (CustomLLMProvider) -> Void
+    let onDelete: (CustomLLMProvider) -> Void
+    let onAdd: () -> Void
+
+    @State private var providerToDelete: CustomLLMProvider?
+
+    var body: some View {
+        NavigationView {
+            List {
+                if viewModel.customProviders.isEmpty {
+                    Text("尚未新增任何自訂 Provider")
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding()
+                } else {
+                    ForEach(viewModel.customProviders) { provider in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(provider.displayName)
+                                    .font(.headline)
+                                Text(provider.model)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            // 刪除按鈕
+                            Button(action: {
+                                providerToDelete = provider
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            onSelect(provider)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("管理自訂 Provider")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: {
+                        dismiss()
+                        onAdd()
+                    }) {
+                        Label("新增", systemImage: "plus")
+                    }
+                }
+            }
+            .alert("刪除 Provider", isPresented: Binding(
+                get: { providerToDelete != nil },
+                set: { if !$0 { providerToDelete = nil } }
+            )) {
+                Button("取消", role: .cancel) {
+                    providerToDelete = nil
+                }
+                Button("刪除", role: .destructive) {
+                    if let provider = providerToDelete {
+                        onDelete(provider)
+                        viewModel.deleteCustomProvider(provider)
+                    }
+                    providerToDelete = nil
+                }
+            } message: {
+                if let provider = providerToDelete {
+                    Text("確定要刪除「\(provider.displayName)」嗎？此操作無法復原。")
+                }
+            }
+        }
+        .frame(minWidth: 400, minHeight: 300)
     }
 }
 

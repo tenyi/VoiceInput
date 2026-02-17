@@ -37,6 +37,27 @@ class LLMService {
     static let shared = LLMService()
 
     private init() {}
+    
+    /// 正規化 URL,確保包含有效的 scheme
+    /// - Parameter urlString: 原始 URL 字串
+    /// - Returns: 正規化後的 URL 字串
+    private func normalizeURL(_ urlString: String) -> String {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // 如果已經有 scheme,直接返回
+        if trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") {
+            return trimmed
+        }
+        
+        // 如果是 localhost 或 127.0.0.1,使用 http://
+        if trimmed.hasPrefix("localhost") || trimmed.hasPrefix("127.0.0.1") {
+            return "http://\(trimmed)"
+        }
+        
+        // 其他情況使用 https://
+        return "https://\(trimmed)"
+    }
+
 
     /// 修正文字
     /// - Parameters:
@@ -90,7 +111,10 @@ class LLMService {
         }
 
         let modelName = model.isEmpty ? "gpt-4o" : model
-        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
+        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
+            completion(.failure(LLMServiceError.invalidConfiguration))
+            return
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -162,7 +186,10 @@ class LLMService {
         }
 
         let modelName = model.isEmpty ? "claude-3-5-sonnet-20241022" : model
-        let url = URL(string: "https://api.anthropic.com/v1/messages")!
+        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
+            completion(.failure(LLMServiceError.invalidConfiguration))
+            return
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -228,26 +255,39 @@ class LLMService {
         model: String,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        // 驗證 URL
-        let baseURL = url.isEmpty ? "http://localhost:11434" : url
-        guard let apiURL = URL(string: "\(baseURL)/api/generate") else {
+        // 驗證 URL，預設使用 http://localhost:11434
+        var baseURL = url.isEmpty ? "http://localhost:11434" : normalizeURL(url)
+        
+        // 移除結尾的斜線，避免拼接路徑時產生雙斜線
+        if baseURL.hasSuffix("/") {
+            baseURL.removeLast()
+        }
+        
+        // 確保 URL 結尾是 /v1/chat/completions
+        let endpoint = baseURL.hasSuffix("/v1/chat/completions") ? baseURL : "\(baseURL)/v1/chat/completions"
+        guard let apiURL = URL(string: endpoint) else {
+
             completion(.failure(LLMServiceError.invalidConfiguration))
             return
         }
 
-        let modelName = model.isEmpty ? "llama3" : model
+        let modelName = model.isEmpty ? "gemma3:4b" : model
 
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let fullPrompt = "\(prompt)\n\n原始文字：\(text)"
+        // 使用 OpenAI 相容格式的 messages
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": prompt],
+            ["role": "user", "content": text]
+        ]
 
         let body: [String: Any] = [
             "model": modelName,
-            "prompt": fullPrompt,
-            "stream": false
+            "messages": messages,
+            "temperature": 0.3
         ]
 
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -263,11 +303,18 @@ class LLMService {
                 return
             }
 
-            // 解析 JSON 回應
+            // 解析 JSON 回應 (OpenAI 相容格式)
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let response = json["response"] as? String {
-                    completion(.success(response))
+                   let choices = json["choices"] as? [[String: Any]],
+                   let firstChoice = choices.first,
+                   let message = firstChoice["message"] as? [String: Any],
+                   let content = message["content"] as? String {
+                    completion(.success(content))
+                } else if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let error = json["error"] as? [String: Any],
+                          let message = error["message"] as? String {
+                    completion(.failure(LLMServiceError.apiError(message)))
                 } else {
                     completion(.failure(LLMServiceError.invalidResponse))
                 }
@@ -288,7 +335,13 @@ class LLMService {
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         // 驗證 URL
-        guard !url.isEmpty, let apiURL = URL(string: url) else {
+        guard !url.isEmpty else {
+            completion(.failure(LLMServiceError.invalidConfiguration))
+            return
+        }
+        
+        let normalizedURL = normalizeURL(url)
+        guard let apiURL = URL(string: normalizedURL) else {
             completion(.failure(LLMServiceError.invalidConfiguration))
             return
         }
@@ -302,6 +355,12 @@ class LLMService {
         if !apiKey.isEmpty {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
+
+        // OpenRouter 需要 HTTP-Referer header
+        // if normalizedURL.contains("openrouter.ai") {
+        //     request.setValue("https://github.com/tenyi/VoiceInput", forHTTPHeaderField: "HTTP-Referer")
+        //     request.setValue("VoiceInput", forHTTPHeaderField: "X-Title")
+        // }
 
         // 組合訊息，支援不同的 API 格式
         let messages: [[String: Any]] = [

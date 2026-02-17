@@ -48,9 +48,18 @@ class InputSimulator {
     /// 透過剪貼簿與模擬 Cmd+V 貼上文字
     private func pasteText(_ text: String) {
         let pasteboard = NSPasteboard.general
-        
-        // 備份現有的剪貼簿內容（僅限純文字）
-        let oldString = pasteboard.string(forType: .string)
+
+        // 備份現有剪貼簿內容（保留所有型別，避免覆蓋圖片/檔案等資料）
+        // 注意：NSPasteboardItem 不保證支援 copy()，改用型別+資料重建快照
+        let oldItemSnapshots: [[NSPasteboard.PasteboardType: Data]] = (pasteboard.pasteboardItems ?? []).map { item in
+            var snapshot: [NSPasteboard.PasteboardType: Data] = [:]
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    snapshot[type] = data
+                }
+            }
+            return snapshot
+        }
         
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -75,15 +84,31 @@ class InputSimulator {
         cmdUp?.post(tap: .cghidEventTap)
         
         // 延遲一段時間後恢復剪貼簿內容，確保貼上操作已完成
-        if let oldString = oldString {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                // 只有當剪貼簿內容仍是我們剛剛貼上的文字時才恢復
-                // 避免使用者在這 0.5 秒內又複製了新東西
-                if pasteboard.string(forType: .string) == text {
-                    pasteboard.clearContents()
-                    pasteboard.setString(oldString, forType: .string)
+        // 增加延遲時間到 1 秒，確保貼上操作有足夠時間完成
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            // 檢查剪貼簿內容是否仍是我們設置的文字
+            // 如果不是，表示貼上成功或使用者又複製了新內容
+            let currentContent = pasteboard.string(forType: .string)
+
+            if currentContent == text {
+                // 剪貼簿仍是我們的文字，表示貼上可能失敗
+                // 或者目標應用程式沒有響應，恢復原始內容
+                pasteboard.clearContents()
+                if !oldItemSnapshots.isEmpty {
+                    let restoredItems: [NSPasteboardItem] = oldItemSnapshots.map { snapshot in
+                        let restoredItem = NSPasteboardItem()
+                        for (type, data) in snapshot {
+                            restoredItem.setData(data, forType: type)
+                        }
+                        return restoredItem
+                    }
+                    pasteboard.writeObjects(restoredItems)
                 }
             }
+            // 如果內容已經改變（不是 text），表示：
+            // 1. 貼上成功，目標應用程式取走了文字
+            // 2. 使用者又複製了新內容
+            // 這兩種情況都不需要恢復原始內容
         }
     }
 }

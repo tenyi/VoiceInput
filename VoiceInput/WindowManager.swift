@@ -120,6 +120,19 @@ struct FloatingPanelView: View {
     /// 根據狀態顯示不同的圖示
     @ViewBuilder
     private var statusIcon: some View {
+        // 如果有 LLM 錯誤，顯示警告圖示
+        if viewModel.lastLLMError != nil {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 20))
+                .foregroundColor(.white)
+        } else {
+            normalStatusIcon
+        }
+    }
+
+    /// 正常狀態的圖示顯示
+    @ViewBuilder
+    private var normalStatusIcon: some View {
         switch viewModel.appState {
         case .idle:
             Image(systemName: "mic.fill")
@@ -145,6 +158,17 @@ struct FloatingPanelView: View {
     /// 根據狀態顯示不同的文字
     @ViewBuilder
     private var statusText: some View {
+        // 如果有 LLM 錯誤訊息，優先顯示錯誤
+        if viewModel.lastLLMError != nil {
+            errorStatusView
+        } else {
+            normalStatusView
+        }
+    }
+
+    /// 正常狀態的文字顯示
+    @ViewBuilder
+    private var normalStatusView: some View {
         switch viewModel.appState {
         case .idle:
             Text("等待輸入...")
@@ -165,8 +189,30 @@ struct FloatingPanelView: View {
         }
     }
 
+    /// 錯誤狀態的文字顯示
+    @ViewBuilder
+    private var errorStatusView: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("LLM 修正失敗")
+                .foregroundColor(.white)
+                .font(.system(size: 12, weight: .semibold))
+            if let errorMessage = viewModel.lastLLMError {
+                Text(errorMessage)
+                    .foregroundColor(.white.opacity(0.8))
+                    .font(.system(size: 11))
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: 220, alignment: .leading)
+    }
+
     /// 背景顏色根據狀態變化
     private var backgroundColor: Color {
+        // 如果有 LLM 錯誤，顯示警告背景色
+        if viewModel.lastLLMError != nil {
+            return Color.orange.opacity(0.9)
+        }
+
         switch viewModel.appState {
         case .idle:
             return Color.black.opacity(0.75)

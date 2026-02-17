@@ -70,7 +70,13 @@ class HotkeyManager {
     func startMonitoring() {
         stopMonitoring()
 
-        //let targetHotkey = currentHotkey
+        // 檢查輔助功能權限
+        let isTrusted = AXIsProcessTrusted()
+        logger.info("輔助功能權限狀態: \(isTrusted)")
+
+        if !isTrusted {
+            logger.warning("輔助功能權限未授予，無法創建 Event Tap")
+        }
 
         // 設置事件過濾 mask
         let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
@@ -108,7 +114,9 @@ class HotkeyManager {
             callback: callback,
             userInfo: refcon
         ) else {
-            logger.error("無法創建 CGEventTap，請確認已授予輔助功能權限")
+            // 嘗試取得更詳細的錯誤資訊
+            let isTrusted = AXIsProcessTrusted()
+            logger.error("無法創建 CGEventTap，請確認已授予輔助功能權限。AXIsProcessTrusted = \(isTrusted)")
             return
         }
 

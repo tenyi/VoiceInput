@@ -135,10 +135,17 @@ class PermissionManager: ObservableObject {
         }
     }
 
+    /// 標記是否已經請求過輔助功能權限
+    @Published var hasPromptedForAccessibility = false
+
     /// 檢查輔助功能權限狀態
     func checkAccessibilityStatus() -> PermissionStatus {
         let trusted = AXIsProcessTrusted()
-        return trusted ? .authorized : .denied
+        if trusted {
+            return .authorized
+        }
+        // 如果還沒請求過，視為 .notDetermined，這樣 requestPermissionIfNeeded 才會去呼叫 requestAccessibilityPermission
+        return hasPromptedForAccessibility ? .denied : .notDetermined
     }
 
     /// 請求單一權限（會彈出系統對話框）
@@ -185,6 +192,12 @@ class PermissionManager: ObservableObject {
                 DispatchQueue.main.async {
                     // 請求後更新狀態
                     self?.checkAllPermissions()
+                    
+                    // 如果請求後仍未授權，且需要顯示提示
+                    if !granted && showCustomAlertIfDenied {
+                        self?.showPermissionAlert(for: type)
+                    }
+                    
                     completion(granted)
                 }
             }
@@ -306,7 +319,11 @@ class PermissionManager: ObservableObject {
     /// 請求輔助功能權限
     /// 注意：輔助功能權限無法透過程式碼請求，必須使用者手動在系統偏好設定中開啟
     private func requestAccessibilityPermission(completion: @escaping (Bool) -> Void) {
+        // 標記已經嘗試請求過，以便下次 checkStatus 返回 .denied
+        hasPromptedForAccessibility = true
+        
         // 輔助功能權限無法直接請求，會彈出系統對話框
+        // 修正：依照使用者回報，在您的環境中 kAXTrustedCheckOptionPrompt 是 Unmanaged<CFString>，必須使用 takeUnretainedValue()
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         let trusted = AXIsProcessTrustedWithOptions(options as CFDictionary)
 
