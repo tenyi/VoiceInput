@@ -148,13 +148,14 @@ class AudioEngine: ObservableObject {
         }
     }
 
-    /// 獲取當前選擇的設備
+    // MARK: - 錄音控制
+
+    /// 取得目前選擇的 AVCaptureDevice（用於名稱回退比對）
     private func getSelectedDevice() -> AVCaptureDevice? {
         guard let deviceID = selectedDeviceID else {
             return AVCaptureDevice.default(for: .audio)
         }
 
-        // 查找指定 ID 的設備
         let discoverySession = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInMicrophone, .externalUnknown],
             mediaType: .audio,
@@ -163,8 +164,6 @@ class AudioEngine: ObservableObject {
 
         return discoverySession.devices.first { $0.uniqueID == deviceID }
     }
-
-    // MARK: - 錄音控制
 
     /// 開始錄音
     /// Starts recording audio.
@@ -181,13 +180,14 @@ class AudioEngine: ObservableObject {
         audioEngine = AVAudioEngine()
         inputNode = audioEngine.inputNode
 
-        // 獲取選擇的設備並設置
-        if let device = getSelectedDevice() {
-            // 嘗試設置輸入設備
-            // 注意: 在 macOS 上，AVAudioEngine 會自動使用系統默認設備
-            // 如果需要指定設備，需要使用 Core Audio API
-            // 這裡我們使用簡化的方式：通過重新配置 inputNode
-            setInputDevice(device)
+        // 若使用者指定設備，嘗試設置為預設輸入設備
+        // 先用 UID 比對，若不一致再用設備名稱回退，避免不同 API 的識別碼格式不一致
+        if let selectedDeviceID {
+            let fallbackName = getSelectedDevice()?.localizedName
+            let switched = setInputDevice(uniqueID: selectedDeviceID, fallbackName: fallbackName)
+            if !switched {
+                logger.warning("指定輸入設備切換失敗，將沿用系統當前預設輸入設備")
+            }
         }
 
         let recordingFormat = inputNode?.outputFormat(forBus: 0)
@@ -202,8 +202,12 @@ class AudioEngine: ObservableObject {
     }
 
     /// 設置輸入設備
-    /// 使用 Core Audio API 將指定的設備設置為系統默認輸入設備
-    private func setInputDevice(_ device: AVCaptureDevice) {
+    /// 使用 Core Audio API 將指定設備設置為系統默認輸入設備
+    /// - Parameters:
+    ///   - uniqueID: 首選識別碼（AVCapture uniqueID）
+    ///   - fallbackName: 當 UID 不匹配時，用設備名稱做回退比對
+    /// - Returns: 是否成功切換
+    private func setInputDevice(uniqueID: String, fallbackName: String?) -> Bool {
         // 獲取所有音訊設備並查找匹配的設備 ID
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
@@ -222,7 +226,7 @@ class AudioEngine: ObservableObject {
 
         guard status == noErr else {
             logger.error("無法獲取音訊設備列表大小，錯誤碼: \(status)")
-            return
+            return false
         }
 
         let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
@@ -239,41 +243,68 @@ class AudioEngine: ObservableObject {
 
         guard status == noErr else {
             logger.error("無法獲取音訊設備列表，錯誤碼: \(status)")
-            return
+            return false
         }
 
-        // 查找匹配的設備 ID
+        // 先嘗試用 CoreAudio Device UID 匹配
         var targetDeviceID: AudioDeviceID = 0
 
         for dev in devices {
-            // 獲取設備名稱
-            var namePropertyAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceNameCFString,
+            var uidPropertyAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceUID,
                 mScope: kAudioObjectPropertyScopeGlobal,
                 mElement: kAudioObjectPropertyElementMain
             )
 
-            var deviceName: CFString = "" as CFString
-            var nameSize = UInt32(MemoryLayout<CFString>.size)
+            var deviceUID: CFString = "" as CFString
+            var uidSize = UInt32(MemoryLayout<CFString>.size)
 
-            let nameStatus = AudioObjectGetPropertyData(
+            let uidStatus = AudioObjectGetPropertyData(
                 dev,
-                &namePropertyAddress,
+                &uidPropertyAddress,
                 0,
                 nil,
-                &nameSize,
-                &deviceName
+                &uidSize,
+                &deviceUID
             )
 
-            if nameStatus == noErr && deviceName == device.localizedName as CFString {
+            if uidStatus == noErr && (deviceUID as String) == uniqueID {
                 targetDeviceID = dev
                 break
             }
         }
 
+        // UID 對不上時，回退用設備名稱匹配（兼容不同 API 的識別碼格式）
+        if targetDeviceID == 0, let fallbackName {
+            for dev in devices {
+                var namePropertyAddress = AudioObjectPropertyAddress(
+                    mSelector: kAudioDevicePropertyDeviceNameCFString,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+
+                var deviceName: CFString = "" as CFString
+                var nameSize = UInt32(MemoryLayout<CFString>.size)
+                let nameStatus = AudioObjectGetPropertyData(
+                    dev,
+                    &namePropertyAddress,
+                    0,
+                    nil,
+                    &nameSize,
+                    &deviceName
+                )
+
+                if nameStatus == noErr && (deviceName as String) == fallbackName {
+                    targetDeviceID = dev
+                    logger.info("UID 比對失敗，已以設備名稱回退匹配: \(fallbackName)")
+                    break
+                }
+            }
+        }
+
         guard targetDeviceID != 0 else {
-            logger.warning("找不到匹配的音訊設備: \(device.localizedName)")
-            return
+            logger.warning("找不到匹配的音訊設備 uniqueID: \(uniqueID), fallbackName: \(fallbackName ?? "nil")")
+            return false
         }
 
         // 設置為系統默認輸入設備
@@ -294,9 +325,11 @@ class AudioEngine: ObservableObject {
         )
 
         if status == noErr {
-            logger.info("已成功切換輸入設備: \(device.localizedName)")
+            logger.info("已成功切換輸入設備 uniqueID: \(uniqueID)")
+            return true
         } else {
-            logger.error("無法切換輸入設備: \(device.localizedName), 錯誤碼: \(status)")
+            logger.error("無法切換輸入設備 uniqueID: \(uniqueID), 錯誤碼: \(status)")
+            return false
         }
     }
 

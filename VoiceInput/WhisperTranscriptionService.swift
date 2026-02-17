@@ -69,6 +69,8 @@ class WhisperTranscriptionService: TranscriptionServiceProtocol, WhisperDelegate
 
     private var isRunning = false
     private var isTranscribing = false
+    private var pendingFinalTranscription = false
+    private let stateQueue = DispatchQueue(label: "VoiceInput.WhisperTranscriptionService.state")
 
     init(modelURL: URL, language: String = "zh") {
         self.modelUrl = modelURL
@@ -122,25 +124,37 @@ class WhisperTranscriptionService: TranscriptionServiceProtocol, WhisperDelegate
     }
 
     func start() {
-        isRunning = true
-        accumulatedBuffer.removeAll()
+        stateQueue.sync {
+            isRunning = true
+            isTranscribing = false
+            pendingFinalTranscription = false
+            accumulatedBuffer.removeAll()
+        }
         logger.info("Whisper 服務已啟動")
     }
 
     func stop() {
-        isRunning = false
-        logger.info("Whisper 服務停止，累積音訊 frame 數: \(self.accumulatedBuffer.count)")
+        let shouldTranscribeNow = stateQueue.sync { () -> Bool in
+            isRunning = false
+            logger.info("Whisper 服務停止，累積音訊 frame 數: \(self.accumulatedBuffer.count)")
 
-        // 停止時進行轉錄
-        if !accumulatedBuffer.isEmpty {
+            if isTranscribing {
+                pendingFinalTranscription = true
+                return false
+            }
+            return !accumulatedBuffer.isEmpty
+        }
+
+        if shouldTranscribeNow {
             Task {
-                await transcribe()
+                await transcribeFinalIfNeeded()
             }
         }
     }
 
     func process(buffer: AVAudioPCMBuffer) {
-        guard isRunning else {
+        let running = stateQueue.sync { isRunning }
+        guard running else {
             logger.debug("Whisper 服務未運行，跳過處理")
             return
         }
@@ -156,35 +170,40 @@ class WhisperTranscriptionService: TranscriptionServiceProtocol, WhisperDelegate
             return
         }
 
-        // 2. 累積音訊
-        accumulatedBuffer.append(contentsOf: convertedData)
-        logger.debug("已累積音訊，目前 frame 數: \(self.accumulatedBuffer.count)")
+        let shouldStartTranscription = stateQueue.sync { () -> Bool in
+            guard isRunning else { return false }
+            accumulatedBuffer.append(contentsOf: convertedData)
+            logger.debug("已累積音訊，目前 frame 數: \(self.accumulatedBuffer.count)")
 
-        // 3. 檢查是否達到處理門檻
-        let duration = Double(accumulatedBuffer.count) / Double(sampleRate)
-        if duration > 1.0 {
-            // 背景執行轉錄
+            let duration = Double(accumulatedBuffer.count) / Double(sampleRate)
+            return duration > 1.0 && !isTranscribing
+        }
+
+        if shouldStartTranscription {
             Task {
-                await transcribeAsync()
+                await transcribeChunkIfNeeded()
             }
         }
     }
 
     // MARK: - 轉錄方法
 
-    private func transcribeAsync() async {
-        guard !isTranscribing, !accumulatedBuffer.isEmpty else {
-            return
-        }
-
+    private func transcribeChunkIfNeeded() async {
         guard let whisperInstance = self.whisper else {
             logger.error("Whisper 實例為 nil，無法轉錄")
             return
         }
 
-        isTranscribing = true
+        let frames = stateQueue.sync { () -> [Float]? in
+            guard !isTranscribing, !accumulatedBuffer.isEmpty else { return nil }
+            isTranscribing = true
+            return accumulatedBuffer
+        }
 
-        let frames = accumulatedBuffer
+        guard let frames else {
+            return
+        }
+
         logger.info("開始轉錄，音訊 frame 數量: \(frames.count)")
 
         do {
@@ -195,21 +214,49 @@ class WhisperTranscriptionService: TranscriptionServiceProtocol, WhisperDelegate
             onTranscriptionResult?(.failure(error))
         }
 
-        isTranscribing = false
+        finalizeTranscriptionCycle()
     }
 
-    private func transcribe() async {
-        guard let whisperInstance = self.whisper, !accumulatedBuffer.isEmpty else {
-            logger.warning("transcribe: Whisper 為 nil 或 buffer 為空")
+    private func transcribeFinalIfNeeded() async {
+        guard let whisperInstance = self.whisper else {
+            logger.warning("transcribeFinalIfNeeded: Whisper 為 nil")
             return
         }
-        logger.info("transcribe: 開始最終轉錄，frame 數: \(self.accumulatedBuffer.count)")
+
+        let frames = stateQueue.sync { () -> [Float]? in
+            guard !isTranscribing, !accumulatedBuffer.isEmpty else { return nil }
+            isTranscribing = true
+            pendingFinalTranscription = false
+            return accumulatedBuffer
+        }
+
+        guard let frames else {
+            logger.warning("transcribeFinalIfNeeded: buffer 為空或已在轉錄中")
+            return
+        }
+
+        logger.info("transcribeFinalIfNeeded: 開始最終轉錄，frame 數: \(frames.count)")
         do {
-            try await whisperInstance.transcribe(audioFrames: accumulatedBuffer)
-            logger.info("transcribe: 最終轉錄完成")
+            try await whisperInstance.transcribe(audioFrames: frames)
+            logger.info("transcribeFinalIfNeeded: 最終轉錄完成")
         } catch {
-            logger.error("transcribe: 最終轉錄失敗: \(error.localizedDescription)")
+            logger.error("transcribeFinalIfNeeded: 最終轉錄失敗: \(error.localizedDescription)")
             onTranscriptionResult?(.failure(error))
+        }
+
+        finalizeTranscriptionCycle()
+    }
+
+    private func finalizeTranscriptionCycle() {
+        let shouldRunFinal = stateQueue.sync { () -> Bool in
+            isTranscribing = false
+            return !isRunning && pendingFinalTranscription && !accumulatedBuffer.isEmpty
+        }
+
+        if shouldRunFinal {
+            Task {
+                await transcribeFinalIfNeeded()
+            }
         }
     }
 

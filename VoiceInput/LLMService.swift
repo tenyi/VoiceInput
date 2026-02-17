@@ -356,6 +356,12 @@ class LLMService {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
 
+        // OpenRouter 需要 HTTP-Referer header
+        // if normalizedURL.contains("openrouter.ai") {
+        //     request.setValue("https://github.com/tenyi/VoiceInput", forHTTPHeaderField: "HTTP-Referer")
+        //     request.setValue("VoiceInput", forHTTPHeaderField: "X-Title")
+        // }
+
         // 組合訊息，支援不同的 API 格式
         let messages: [[String: Any]] = [
             ["role": "system", "content": prompt],

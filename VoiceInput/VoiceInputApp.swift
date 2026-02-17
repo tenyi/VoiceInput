@@ -11,7 +11,7 @@ import AppKit
 @main
 struct VoiceInputApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var viewModel = VoiceInputViewModel()
+    @StateObject private var viewModel = AppDelegate.sharedViewModel
 
     var body: some Scene {
         MenuBarExtra("VoiceInput", systemImage: viewModel.isRecording ? "waveform.circle.fill" : "mic.fill") {
@@ -36,6 +36,8 @@ struct VoiceInputApp: App {
 
 /// App 代理人，負責處理應用程式生命週期事件
 class AppDelegate: NSObject, NSApplicationDelegate {
+    static let sharedViewModel = VoiceInputViewModel()
+
     /// 儲存設定視窗的引用
     private var settingsWindow: NSWindow?
 
@@ -61,7 +63,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 建立新的視窗
         let settingsView = SettingsView()
-            .environmentObject(VoiceInputViewModel())
+            .environmentObject(Self.sharedViewModel)
 
         let hostingController = NSHostingController(rootView: settingsView)
 

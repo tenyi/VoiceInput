@@ -10,8 +10,46 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
+    @State private var selectedTab: MainTab = .main
+
+    private enum MainTab: String, CaseIterable, Identifiable {
+        case main = "主控"
+        case history = "歷史"
+        var id: String { rawValue }
+    }
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("分頁", selection: $selectedTab) {
+                Text(MainTab.main.rawValue).tag(MainTab.main)
+                Text(MainTab.history.rawValue).tag(MainTab.history)
+            }
+            .pickerStyle(.segmented)
+            .padding([.top, .horizontal])
+
+            if selectedTab == .main {
+                mainView
+            } else {
+                historyView
+            }
+        }
+        .frame(width: 360, height: 520)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .sheet(isPresented: $viewModel.permissionManager.showingPermissionAlert) {
+            if let permissionType = viewModel.permissionManager.pendingPermissionType {
+                PermissionAlertView(
+                    permissionType: permissionType,
+                    onDismiss: {
+                        viewModel.permissionManager.showingPermissionAlert = false
+                        // 重新檢查權限
+                        viewModel.permissionManager.checkAllPermissions()
+                    }
+                )
+            }
+        }
+    }
+
+    private var mainView: some View {
         VStack(spacing: 0) {
             // 標題與狀態
             headerView
@@ -38,20 +76,6 @@ struct ContentView: View {
             Divider()
 
             footerView
-        }
-        .frame(width: 350, height: 500)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .sheet(isPresented: $viewModel.permissionManager.showingPermissionAlert) {
-            if let permissionType = viewModel.permissionManager.pendingPermissionType {
-                PermissionAlertView(
-                    permissionType: permissionType,
-                    onDismiss: {
-                        viewModel.permissionManager.showingPermissionAlert = false
-                        // 重新檢查權限
-                        viewModel.permissionManager.checkAllPermissions()
-                    }
-                )
-            }
         }
     }
     
@@ -163,6 +187,76 @@ struct ContentView: View {
             .buttonStyle(.plain)
         }
         .padding()
+    }
+
+    private var historyView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("最近 10 筆輸入")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding()
+
+            Divider()
+
+            if viewModel.transcriptionHistory.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "tray")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text("目前沒有歷史輸入")
+                        .foregroundColor(.secondary)
+                        .font(.subheadline)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(viewModel.transcriptionHistory) { item in
+                            historyRow(item)
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+    }
+
+    private func historyRow(_ item: TranscriptionHistoryItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(item.createdAt.formatted(date: .omitted, time: .standard))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button {
+                    viewModel.copyHistoryText(item.text)
+                } label: {
+                    Label("複製", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+
+                Button {
+                    viewModel.deleteHistoryItem(item)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("刪除此筆紀錄")
+            }
+
+            Text(item.text)
+                .font(.system(.body, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(10)
+        .background(Color.black.opacity(0.05))
+        .cornerRadius(8)
     }
     
     // MARK: - Actions

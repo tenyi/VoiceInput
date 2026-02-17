@@ -51,54 +51,16 @@ enum AppState {
     case transcribing // 轉寫中
 }
 
-/// 已導入的 Whisper 模型
-struct ImportedModel: Identifiable, Codable {
+/// 單筆轉錄歷史紀錄
+struct TranscriptionHistoryItem: Identifiable, Codable, Equatable {
     let id: UUID
-    var name: String
-    var fileName: String
-    /// 檔案大小（bytes）
-    var fileSize: Int64?
-    /// 匯入日期
-    var importDate: Date
+    let text: String
+    let createdAt: Date
 
-    init(name: String, fileName: String, fileSize: Int64? = nil, importDate: Date = Date()) {
-        self.id = UUID()
-        self.name = name
-        self.fileName = fileName
-        self.fileSize = fileSize
-        self.importDate = importDate
-    }
-
-    /// 格式化的檔案大小
-    var fileSizeFormatted: String {
-        guard let size = fileSize else { return "未知" }
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: size)
-    }
-
-    /// 推斷的模型類型（根據檔案大小）
-    var inferredModelType: String {
-        guard let size = fileSize else { return "未知" }
-        // 根據檔案大小推斷模型類型（近似值）
-        if size < 75_000_000 {
-            return "Tiny"
-        } else if size < 150_000_000 {
-            return "Base"
-        } else if size < 500_000_000 {
-            return "Small"
-        } else if size < 1_500_000_000 {
-            return "Medium"
-        } else {
-            return "Large"
-        }
-    }
-
-    /// 檢查檔案是否存在
-    func fileExists(in directory: URL) -> Bool {
-        let url = directory.appendingPathComponent(fileName)
-        return FileManager.default.fileExists(atPath: url.path)
+    init(id: UUID = UUID(), text: String, createdAt: Date) {
+        self.id = id
+        self.text = text
+        self.createdAt = createdAt
     }
 }
 
@@ -114,6 +76,7 @@ class VoiceInputViewModel: ObservableObject {
     @AppStorage("autoInsertText") var autoInsertText: Bool = true
     @AppStorage("selectedHotkey") var selectedHotkey: String = HotkeyOption.rightCommand.rawValue
     @AppStorage("selectedSpeechEngine") var selectedSpeechEngine: String = SpeechRecognitionEngine.apple.rawValue
+    @AppStorage("selectedInputDeviceID") private var selectedInputDeviceStorage: String = ""
 
     // MARK: - 已導入的模型列表
     @AppStorage("importedModels") private var importedModelsData: Data = Data()
@@ -142,13 +105,15 @@ class VoiceInputViewModel: ObservableObject {
         return appSupport.appendingPathComponent("VoiceInput/Models", isDirectory: true)
     }
 
-    // MARK: - Speech Engine 選項
-    enum SpeechRecognitionEngine: String, CaseIterable, Identifiable {
-        case apple = "Apple 系統語音辨識"
-        case whisper = "Whisper (Local)"
-
-        var id: String { self.rawValue }
+    /// 轉錄歷史檔案路徑
+    private var transcriptionHistoryFileURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport
+            .appendingPathComponent("VoiceInput", isDirectory: true)
+            .appendingPathComponent("transcription_history.json", isDirectory: false)
     }
+
+    // MARK: - Speech Engine 選項
 
     // MARK: - LLM 修正設定
     /// 是否啟用 LLM 修正
@@ -156,17 +121,25 @@ class VoiceInputViewModel: ObservableObject {
     /// LLM 服務提供者
     @AppStorage("llmProvider") var llmProvider: String = LLMProvider.openAI.rawValue
     /// API URL (Ollama 或自訂 API 使用)
-    @AppStorage("llmURL") var llmURL: String = ""
+    @AppStorage("llmURL") var llmURL: String = "" {
+        didSet {
+            saveCurrentBuiltInProviderSettings()
+        }
+    }
     
     /// API Key (已遷移至 Keychain)
     @Published var llmAPIKey: String = "" {
         didSet {
-            KeychainHelper.shared.save(llmAPIKey, service: "com.tenyi.voiceinput", account: "llmAPIKey")
+            saveCurrentBuiltInProviderAPIKey()
         }
     }
     
     /// 模型名稱 (如 gpt-4o, claude-3-5-sonnet, llama3 等)
-    @AppStorage("llmModel") var llmModel: String = ""
+    @AppStorage("llmModel") var llmModel: String = "" {
+        didSet {
+            saveCurrentBuiltInProviderSettings()
+        }
+    }
     /// 自訂提示詞
     @AppStorage("llmPrompt") var llmPrompt: String = ""
 
@@ -181,6 +154,10 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 已轉錄的文字內容
     @Published var transcribedText = "等待輸入..."
+    /// 最近轉錄歷史（最多 10 筆）
+    @Published var transcriptionHistory: [TranscriptionHistoryItem] = []
+    /// LLM 修正錯誤訊息（用於在懸浮視窗顯示）
+    @Published var lastLLMError: String?
     /// 權限狀態
     @Published var permissionGranted = false
     /// 錄音開始時間（用於防抖，避免極短暫的錄音）
@@ -198,15 +175,21 @@ class VoiceInputViewModel: ObservableObject {
     @Published var selectedInputDeviceID: String? {
         didSet {
             audioEngine.selectedDeviceID = selectedInputDeviceID
+            selectedInputDeviceStorage = selectedInputDeviceID ?? ""
         }
     }
 
     /// 刷新音訊設備列表
     func refreshAudioDevices() {
         audioEngine.refreshAvailableDevices()
+        DispatchQueue.main.async { [weak self] in
+            self?.reconcileSelectedInputDevice()
+        }
     }
     /// 轉錄服務 (目前支援 SFSpeech)
     private var transcriptionService: TranscriptionServiceProtocol = SFSpeechTranscriptionService()
+    /// 轉錄管理器 - 負責轉錄狀態管理
+    @ObservedObject var transcriptionManager = TranscriptionManager()
     /// 輸入模擬器 (用於插入文字)
     private var inputSimulator = InputSimulator.shared
 
@@ -229,6 +212,8 @@ class VoiceInputViewModel: ObservableObject {
     /// 自訂 Provider 列表（儲存多個用戶添加的 Provider）
     @AppStorage("customLLMProviders") private var customProvidersData: Data = Data()
     @Published var customProviders: [CustomLLMProvider] = []
+    @AppStorage("builtInProviderSettings") private var builtInProviderSettingsData: Data = Data()
+    private var builtInProviderSettings: [String: BuiltInProviderSetting] = [:]
 
     /// 目前選擇的自訂 Provider ID（若選擇內建 Provider 則為 nil）
     @AppStorage("selectedCustomProviderId") var selectedCustomProviderId: String?
@@ -312,6 +297,104 @@ class VoiceInputViewModel: ObservableObject {
         logger.info("已刪除自訂 Provider: \(provider.name)")
     }
 
+    private func loadBuiltInProviderSettings() {
+        guard !builtInProviderSettingsData.isEmpty else { return }
+        do {
+            builtInProviderSettings = try JSONDecoder().decode([String: BuiltInProviderSetting].self, from: builtInProviderSettingsData)
+        } catch {
+            builtInProviderSettings = [:]
+            logger.error("無法載入內建 Provider 設定: \(error.localizedDescription)")
+        }
+    }
+
+    private func saveBuiltInProviderSettings() {
+        do {
+            builtInProviderSettingsData = try JSONEncoder().encode(builtInProviderSettings)
+        } catch {
+            logger.error("無法保存內建 Provider 設定: \(error.localizedDescription)")
+        }
+    }
+
+    func saveCurrentBuiltInProviderSettings() {
+        guard selectedCustomProviderId == nil else { return }
+        guard let provider = LLMProvider(rawValue: llmProvider), provider != .custom else { return }
+
+        builtInProviderSettings[provider.rawValue] = BuiltInProviderSetting(
+            url: llmURL,
+            model: llmModel
+        )
+        saveBuiltInProviderSettings()
+    }
+
+    func loadBuiltInProviderSettings(for provider: LLMProvider) {
+        guard provider != .custom else { return }
+
+        if let saved = builtInProviderSettings[provider.rawValue] {
+            llmURL = saved.url
+            llmModel = saved.model
+            return
+        }
+
+        if provider == .ollama && llmURL.isEmpty {
+            llmURL = "http://localhost:11434/v1/chat/completions"
+        }
+    }
+
+    private func builtInProviderAPIKeyAccount(for provider: LLMProvider) -> String {
+        "llmAPIKey.\(provider.rawValue)"
+    }
+
+    private func loadLegacyLLMAPIKeyIfNeeded() {
+        if let savedKey = KeychainHelper.shared.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), !savedKey.isEmpty {
+            llmAPIKey = savedKey
+            return
+        }
+
+        let legacyKey = UserDefaults.standard.string(forKey: "llmAPIKey") ?? ""
+        if !legacyKey.isEmpty {
+            llmAPIKey = legacyKey
+            KeychainHelper.shared.save(legacyKey, service: "com.tenyi.voiceinput", account: "llmAPIKey")
+            UserDefaults.standard.removeObject(forKey: "llmAPIKey")
+        }
+    }
+
+    func saveCurrentBuiltInProviderAPIKey() {
+        guard selectedCustomProviderId == nil else { return }
+        guard let provider = LLMProvider(rawValue: llmProvider), provider != .custom else { return }
+
+        KeychainHelper.shared.save(
+            llmAPIKey,
+            service: "com.tenyi.voiceinput",
+            account: builtInProviderAPIKeyAccount(for: provider)
+        )
+    }
+
+    func loadBuiltInProviderAPIKey(for provider: LLMProvider) {
+        guard provider != .custom else { return }
+
+        if let savedKey = KeychainHelper.shared.read(
+            service: "com.tenyi.voiceinput",
+            account: builtInProviderAPIKeyAccount(for: provider)
+        ) {
+            llmAPIKey = savedKey
+            return
+        }
+
+        // 舊版單一 Key 的相容遷移（第一次切換到該 provider 時複製一份）
+        if let legacyKey = KeychainHelper.shared.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"),
+           !legacyKey.isEmpty {
+            llmAPIKey = legacyKey
+            KeychainHelper.shared.save(
+                legacyKey,
+                service: "com.tenyi.voiceinput",
+                account: builtInProviderAPIKeyAccount(for: provider)
+            )
+            return
+        }
+
+        llmAPIKey = ""
+    }
+
     /// 清除目前選擇的 Provider（切回內建 Provider）
     func clearSelectedProvider() {
         selectedCustomProviderId = nil
@@ -323,14 +406,30 @@ class VoiceInputViewModel: ObservableObject {
     }
 
     /// LLM 修正的預設提示詞
-    static let defaultLLMPrompt = "你是一個文字校正助手。請修正以下語音辨識結果中的錯誤（包括錯字、漏字、標點符號等），但不要改變原意。只需回傳修正後的文字，不要有其他說明。"
+    static let defaultLLMPrompt = "你是一個文字校稿員。請修正以下語音辨識結果中的錯誤（包括錯字、漏字、標點符號等），但不要改變原意。只需回傳修正後的文字，reply in zh-TW，不要有其他說明。"
+
+    private struct BuiltInProviderSetting: Codable {
+        var url: String
+        var model: String
+    }
 
     init() {
-        loadLLMAPIKey()
+        selectedInputDeviceID = selectedInputDeviceStorage.isEmpty ? nil : selectedInputDeviceStorage
+        audioEngine.selectedDeviceID = selectedInputDeviceID
+
         loadCustomProviders()  // 載入自訂 Provider 列表
+        loadBuiltInProviderSettings()
+        if selectedCustomProviderId == nil {
+            loadBuiltInProviderAPIKey(for: currentLLMProvider)
+            loadBuiltInProviderSettings(for: currentLLMProvider)
+        } else {
+            loadLegacyLLMAPIKeyIfNeeded()
+        }
         loadImportedModels()
+        loadTranscriptionHistory()
         setupAudioEngine()
         setupHotkeys()
+        refreshAudioDevices()
     }
 
     // MARK: - 模型導入功能
@@ -352,6 +451,38 @@ class VoiceInputViewModel: ObservableObject {
             importedModelsData = try JSONEncoder().encode(importedModels)
         } catch {
             logger.error("無法保存模型列表: \(error.localizedDescription)")
+        }
+    }
+
+    /// 載入轉錄歷史（最多保留 10 筆）
+    private func loadTranscriptionHistory() {
+        let fileURL = transcriptionHistoryFileURL
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            transcriptionHistory = []
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let decoded = try JSONDecoder().decode([TranscriptionHistoryItem].self, from: data)
+            transcriptionHistory = Array(decoded.sorted(by: { $0.createdAt > $1.createdAt }).prefix(10))
+        } catch {
+            logger.error("無法載入轉錄歷史: \(error.localizedDescription)")
+            transcriptionHistory = []
+        }
+    }
+
+    /// 保存轉錄歷史（最多保留 10 筆）
+    private func saveTranscriptionHistory() {
+        do {
+            let historyToSave = Array(transcriptionHistory.prefix(10))
+            let data = try JSONEncoder().encode(historyToSave)
+            let fileURL = transcriptionHistoryFileURL
+            let directory = fileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            logger.error("無法保存轉錄歷史: \(error.localizedDescription)")
         }
     }
 
@@ -493,22 +624,6 @@ class VoiceInputViewModel: ObservableObject {
         return nil
     }
 
-    /// 從 Keychain 載入 API Key
-    private func loadLLMAPIKey() {
-        if let savedKey = KeychainHelper.shared.read(service: "com.tenyi.voiceinput", account: "llmAPIKey") {
-            self.llmAPIKey = savedKey
-        } else {
-            // 遷移邏輯：嘗試從 UserDefaults 讀取舊的明文 Key
-            let legacyKey = UserDefaults.standard.string(forKey: "llmAPIKey") ?? ""
-            if !legacyKey.isEmpty {
-                self.llmAPIKey = legacyKey
-                // 遷移成功後，建議手動同步一次 Keychain 並刪除舊資料
-                KeychainHelper.shared.save(legacyKey, service: "com.tenyi.voiceinput", account: "llmAPIKey")
-                UserDefaults.standard.removeObject(forKey: "llmAPIKey")
-            }
-        }
-    }
-
     /// 設定音訊引擎與檢查權限
     private func setupAudioEngine() {
         // 檢查所有權限狀態
@@ -517,6 +632,17 @@ class VoiceInputViewModel: ObservableObject {
         // 請求必要的權限
         audioEngine.checkPermission { [weak self] granted in
             self?.permissionGranted = granted
+        }
+    }
+
+    /// 校正已選擇的輸入設備：
+    /// 若設備仍存在則保留，若不存在則回退到系統預設。
+    private func reconcileSelectedInputDevice() {
+        guard let selectedID = selectedInputDeviceID else { return }
+
+        let exists = availableInputDevices.contains { $0.id == selectedID }
+        if !exists {
+            selectedInputDeviceID = nil
         }
     }
 
@@ -745,23 +871,23 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 執行 LLM 文字修正
     private func performLLMCorrection(completion: @escaping () -> Void) {
-        // 取得提示詞，若未自訂則使用預設值
-        let prompt = llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : llmPrompt
+        let config = resolveEffectiveLLMConfiguration()
 
         LLMService.shared.correctText(
             text: transcribedText,
-            prompt: prompt,
-            provider: currentLLMProvider,
-            apiKey: llmAPIKey,
-            url: llmURL,
-            model: llmModel
+            prompt: config.prompt,
+            provider: config.provider,
+            apiKey: config.apiKey,
+            url: config.url,
+            model: config.model
         ) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let correctedText):
                     self?.transcribedText = correctedText
                 case .failure(let error):
-                    // 若修正失敗，保留原文繼續執行
+                    // 若修正失敗，保留原文繼續執行，並記錄錯誤訊息
+                    self?.lastLLMError = error.localizedDescription
                     self?.logger.error("LLM 修正失敗: \(error.localizedDescription)")
                 }
                 completion()
@@ -771,6 +897,8 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 執行插入文字並隱藏視窗
     private func proceedToInsertAndHide() {
+        addTranscriptionHistoryIfNeeded(transcribedText)
+
         // 自動插入文字到當前應用程式
         if autoInsertText && !transcribedText.isEmpty && transcribedText != "等待輸入..." {
             // 檢查輔助功能權限
@@ -779,10 +907,28 @@ class VoiceInputViewModel: ObservableObject {
                 if granted {
                     self.insertText()
                 }
-                self.hideWindow()
+
+                // 如果有 LLM 錯誤，先顯示錯誤訊息一段時間後再隱藏
+                if self.lastLLMError != nil {
+                    // 設定狀態為顯示錯誤（保持懸浮視窗可見）
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                        self?.lastLLMError = nil // 清除錯誤訊息
+                        self?.hideWindow()
+                    }
+                } else {
+                    self.hideWindow()
+                }
             }
         } else {
-            hideWindow()
+            // 如果有 LLM 錯誤，先顯示錯誤訊息一段時間後再隱藏
+            if lastLLMError != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    self?.lastLLMError = nil
+                    self?.hideWindow()
+                }
+            } else {
+                hideWindow()
+            }
         }
     }
 
@@ -793,6 +939,34 @@ class VoiceInputViewModel: ObservableObject {
             guard let self = self else { return }
             self.inputSimulator.insertText(self.transcribedText)
         }
+    }
+
+    /// 添加轉錄歷史（僅保留最近 10 筆）
+    private func addTranscriptionHistoryIfNeeded(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "等待輸入...", !trimmed.hasPrefix("識別錯誤：") else {
+            return
+        }
+
+        let item = TranscriptionHistoryItem(text: trimmed, createdAt: Date())
+        transcriptionHistory.insert(item, at: 0)
+        if transcriptionHistory.count > 10 {
+            transcriptionHistory = Array(transcriptionHistory.prefix(10))
+        }
+        saveTranscriptionHistory()
+    }
+
+    /// 刪除指定歷史紀錄
+    func deleteHistoryItem(_ item: TranscriptionHistoryItem) {
+        transcriptionHistory.removeAll { $0.id == item.id }
+        saveTranscriptionHistory()
+    }
+
+    /// 複製歷史文字到剪貼簿
+    func copyHistoryText(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     /// 隱藏浮動視窗
@@ -822,16 +996,60 @@ class VoiceInputViewModel: ObservableObject {
         text: String,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        let prompt = llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : llmPrompt
+        let config = resolveEffectiveLLMConfiguration()
 
         LLMService.shared.correctText(
             text: text,
-            prompt: prompt,
+            prompt: config.prompt,
+            provider: config.provider,
+            apiKey: config.apiKey,
+            url: config.url,
+            model: config.model,
+            completion: completion
+        )
+    }
+
+    static func resolveEffectiveLLMConfiguration(
+        prompt: String,
+        provider: LLMProvider,
+        apiKey: String,
+        url: String,
+        model: String,
+        selectedCustomProvider: CustomLLMProvider?
+    ) -> EffectiveLLMConfiguration {
+        var resolvedPrompt = prompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : prompt
+        var resolvedProvider = provider
+        var resolvedAPIKey = apiKey
+        var resolvedURL = url
+        var resolvedModel = model
+
+        if let customProvider = selectedCustomProvider {
+            resolvedProvider = .custom
+            resolvedAPIKey = customProvider.apiKey
+            resolvedURL = customProvider.apiURL
+            resolvedModel = customProvider.model
+            if !customProvider.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                resolvedPrompt = customProvider.prompt
+            }
+        }
+
+        return EffectiveLLMConfiguration(
+            prompt: resolvedPrompt,
+            provider: resolvedProvider,
+            apiKey: resolvedAPIKey,
+            url: resolvedURL,
+            model: resolvedModel
+        )
+    }
+
+    private func resolveEffectiveLLMConfiguration() -> EffectiveLLMConfiguration {
+        VoiceInputViewModel.resolveEffectiveLLMConfiguration(
+            prompt: llmPrompt,
             provider: currentLLMProvider,
             apiKey: llmAPIKey,
             url: llmURL,
             model: llmModel,
-            completion: completion
+            selectedCustomProvider: selectedCustomProvider
         )
     }
 
@@ -855,3 +1073,10 @@ class VoiceInputViewModel: ObservableObject {
         NSWorkspace.shared.selectFile(modelURL.path, inFileViewerRootedAtPath: modelsDirectory.path)
     }
 }
+    struct EffectiveLLMConfiguration {
+        let prompt: String
+        let provider: LLMProvider
+        let apiKey: String
+        let url: String
+        let model: String
+    }
