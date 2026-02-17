@@ -429,14 +429,6 @@ struct LLMSettingsView: View {
     /// Prompt 文字 (用於編輯，若有自訂則顯示自訂值，否則顯示預設值)
     @State private var promptText: String = ""
 
-    /// 目前的 provider 顯示名稱（包含內建和自訂）
-    private var currentProviderDisplayName: String {
-        if let custom = selectedCustomProvider {
-            return custom.displayName
-        }
-        return selectedProvider.rawValue
-    }
-
     // 測試相關狀態
     @State private var isTesting: Bool = false
     @State private var testOutput: String = ""
@@ -484,10 +476,17 @@ struct LLMSettingsView: View {
             // Provider 選擇
             Section {
                 Picker("服務提供者", selection: Binding(
-                    get: { currentProviderDisplayName },
+                    get: {
+                        // 如果有選擇自訂 Provider，返回其 ID；否則返回內建 Provider 名稱
+                        if let custom = selectedCustomProvider {
+                            return custom.id.uuidString
+                        }
+                        return selectedProvider.rawValue
+                    },
                     set: { newValue in
-                        // 檢查是否是自訂 Provider（名稱存在於自訂列表中）
-                        if let customProvider = viewModel.customProviders.first(where: { $0.name == newValue || $0.displayName == newValue }) {
+                        // 檢查是否是自訂 Provider（UUID 格式）
+                        if let uuid = UUID(uuidString: newValue),
+                           let customProvider = viewModel.customProviders.first(where: { $0.id == uuid }) {
                             selectedCustomProvider = customProvider
                             selectedProvider = .custom
                         } else {
@@ -508,7 +507,7 @@ struct LLMSettingsView: View {
                     if !viewModel.customProviders.isEmpty {
                         Section("自訂") {
                             ForEach(viewModel.customProviders) { provider in
-                                Text(provider.displayName).tag(provider.displayName)
+                                Text(provider.displayName).tag(provider.id.uuidString)
                             }
                         }
                     }
@@ -532,7 +531,7 @@ struct LLMSettingsView: View {
             Section {
                 // 自訂 Provider 的設定
                 if let custom = selectedCustomProvider {
-                    // 顯示自訂 Provider 的資訊（唯讀）
+                    // 顯示並編輯自訂 Provider 的資訊
                     Group {
                         Text("Provider: \(custom.name)")
                             .font(.headline)

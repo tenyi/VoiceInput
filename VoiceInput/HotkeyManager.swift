@@ -76,7 +76,6 @@ class HotkeyManager {
 
         if !isTrusted {
             logger.warning("輔助功能權限未授予，無法創建 Event Tap")
-            print("[HotkeyManager] 輔助功能權限未授予，無法創建 Event Tap")
         }
 
         // 設置事件過濾 mask
@@ -118,9 +117,6 @@ class HotkeyManager {
             // 嘗試取得更詳細的錯誤資訊
             let isTrusted = AXIsProcessTrusted()
             logger.error("無法創建 CGEventTap，請確認已授予輔助功能權限。AXIsProcessTrusted = \(isTrusted)")
-            print("[HotkeyManager] 無法創建 CGEventTap！輔助功能權限: \(isTrusted)")
-            print("[HotkeyManager] 請確認 VoiceInput 已添加到「系統設定」>「隱私權與安全性」>「輔助功能」中")
-            print("[HotkeyManager] 注意：需要將 app 添加到列表中，如果列表中沒有，嘗試點擊「+」按鈕添加")
             return
         }
 

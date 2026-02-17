@@ -111,7 +111,10 @@ class LLMService {
         }
 
         let modelName = model.isEmpty ? "gpt-4o" : model
-        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
+        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
+            completion(.failure(LLMServiceError.invalidConfiguration))
+            return
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -183,7 +186,10 @@ class LLMService {
         }
 
         let modelName = model.isEmpty ? "claude-3-5-sonnet-20241022" : model
-        let url = URL(string: "https://api.anthropic.com/v1/messages")!
+        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
+            completion(.failure(LLMServiceError.invalidConfiguration))
+            return
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

@@ -2,12 +2,16 @@ import AVFoundation
 import Speech
 import Combine
 import AVFAudio
+import os
 
 /// 負責處理麥克風輸入與權限管理的音訊引擎
 /// This class handles microphone input and permission management.
 class AudioEngine: ObservableObject {
     /// 單例實例
     static let shared = AudioEngine()
+    
+    /// 日誌記錄器
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "AudioEngine")
 
     /// AVAudioEngine 實例，用於處理音訊流
     private var audioEngine = AVAudioEngine()
@@ -200,7 +204,7 @@ class AudioEngine: ObservableObject {
     private func setInputDevice(_ device: AVCaptureDevice) {
         // 在 macOS 上，AVAudioEngine 的 inputNode 設備設置比較複雜
         // 這裡我們記錄選擇的設備名稱，用於調試
-        print("[AudioEngine] 選擇的輸入設備: \(device.localizedName)")
+        logger.info("選擇的輸入設備: \(device.localizedName)")
     }
 
     /// 停止錄音

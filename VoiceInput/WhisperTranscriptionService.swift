@@ -109,7 +109,6 @@ class WhisperTranscriptionService: TranscriptionServiceProtocol, WhisperDelegate
             logger.info("Whisper 模型載入成功")
         } catch {
             logger.error("無法載入 Whisper 模型: \(error.localizedDescription)")
-            print("[WhisperTranscriptionService] 載入模型錯誤: \(error)")
             onTranscriptionResult?(.failure(error))
         }
     }
@@ -223,20 +222,17 @@ class WhisperTranscriptionService: TranscriptionServiceProtocol, WhisperDelegate
     func whisper(_ whisper: Whisper, didProcessNewSegments segments: [Segment], atIndex index: Int) {
         let text = segments.map { $0.text }.joined(separator: " ")
         logger.info("Whisper 部分結果: \(text)")
-        print("[WhisperTranscriptionService] 部分結果: \(text)")
         onTranscriptionResult?(.success(text))
     }
 
     func whisper(_ whisper: Whisper, didCompleteWithSegments segments: [Segment]) {
         let text = segments.map { $0.text }.joined(separator: " ")
         logger.info("Whisper 最終結果: \(text)")
-        print("[WhisperTranscriptionService] 最終結果: \(text)")
         onTranscriptionResult?(.success(text))
     }
 
     func whisper(_ whisper: Whisper, didErrorWith error: Error) {
         logger.error("Whisper 錯誤: \(error.localizedDescription)")
-        print("[WhisperTranscriptionService] Whisper 錯誤: \(error)")
         onTranscriptionResult?(.failure(error))
     }
 

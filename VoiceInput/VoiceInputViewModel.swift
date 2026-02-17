@@ -430,8 +430,7 @@ class VoiceInputViewModel: ObservableObject {
                     // 自動選擇新導入的模型
                     self.selectImportedModel(newModel)
                     
-                    self.logger.info("模型導入成功: \(destinationFileName)")
-                    print("[VoiceInputViewModel] 模型導入成功: \(destinationFileName)，儲存於: \(destinationURL.path)")
+                    self.logger.info("模型導入成功: \(destinationFileName)，儲存於: \(destinationURL.path)")
                     
                     // 完成
                     self.modelImportProgress = 1.0
