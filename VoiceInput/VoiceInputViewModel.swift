@@ -798,7 +798,12 @@ class VoiceInputViewModel: ObservableObject {
                 case .success(let text):
                     // 只有非空文字才更新，否則保持空白
                     if !text.isEmpty {
-                        self?.transcribedText = text
+                        // 若選擇繁體中文，將簡體中文轉換為繁體中文
+                        var processedText = text
+                        if self?.selectedLanguage == "zh-TW" {
+                            processedText = text.toTraditionalChinese()
+                        }
+                        self?.transcribedText = processedText
                     }
                 case .failure(let error):
                     // 真正的錯誤才顯示錯誤訊息
@@ -891,7 +896,12 @@ class VoiceInputViewModel: ObservableObject {
             DispatchQueue.main.async {
                 switch result {
                 case .success(let correctedText):
-                    self?.transcribedText = correctedText
+                    // 若選擇繁體中文，將簡體中文轉換為繁體中文
+                    var processedText = correctedText
+                    if self?.selectedLanguage == "zh-TW" {
+                        processedText = correctedText.toTraditionalChinese()
+                    }
+                    self?.transcribedText = processedText
                 case .failure(let error):
                     // 若修正失敗，保留原文繼續執行，並記錄錯誤訊息
                     self?.lastLLMError = error.localizedDescription
@@ -1079,7 +1089,7 @@ class VoiceInputViewModel: ObservableObject {
         let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
         NSWorkspace.shared.selectFile(modelURL.path, inFileViewerRootedAtPath: modelsDirectory.path)
     }
-}
+
     struct EffectiveLLMConfiguration {
         let prompt: String
         let provider: LLMProvider
@@ -1087,3 +1097,20 @@ class VoiceInputViewModel: ObservableObject {
         let url: String
         let model: String
     }
+}
+
+// MARK: - 簡轉繁擴展
+/// 使用 ICU 將簡體中文轉換為繁體中文
+extension String {
+    /// 將簡體中文轉換為繁體中文
+    /// 使用 Core Foundation 的 CFStringTransform 實現
+    func toTraditionalChinese() -> String {
+        let input = NSMutableString(string: self)
+        var range = CFRangeMake(0, input.length)
+        // 使用 ICU Transform: Simplified Chinese to Traditional Chinese
+        // "Hant" 是將簡體中文轉換為繁體中文的轉換名稱
+        let transformName = "Hant" as CFString
+        CFStringTransform(input, &range, transformName, false)
+        return input as String
+    }
+}
