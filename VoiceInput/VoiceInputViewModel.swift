@@ -803,6 +803,10 @@ class VoiceInputViewModel: ObservableObject {
                         if self?.selectedLanguage == "zh-TW" {
                             processedText = text.toTraditionalChinese()
                         }
+                        
+                        // 應用字典置換
+                        processedText = DictionaryManager.shared.replaceText(processedText)
+                        
                         self?.transcribedText = processedText
                     }
                 case .failure(let error):
@@ -901,6 +905,10 @@ class VoiceInputViewModel: ObservableObject {
                     if self?.selectedLanguage == "zh-TW" {
                         processedText = correctedText.toTraditionalChinese()
                     }
+                    
+                    // 應用字典置換
+                    processedText = DictionaryManager.shared.replaceText(processedText)
+                    
                     self?.transcribedText = processedText
                 case .failure(let error):
                     // 若修正失敗，保留原文繼續執行，並記錄錯誤訊息

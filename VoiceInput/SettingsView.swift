@@ -34,6 +34,11 @@ struct SettingsView: View {
                         Label("LLM", systemImage: "brain")
                     }
 
+                DictionarySettingsView()
+                    .tabItem {
+                        Label("字典", systemImage: "character.book.closed")
+                    }
+
                 HistorySettingsView()
                     .tabItem {
                         Label("歷史", systemImage: "clock.arrow.circlepath")
