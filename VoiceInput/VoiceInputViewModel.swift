@@ -762,6 +762,12 @@ class VoiceInputViewModel: ObservableObject {
             if let sfService = transcriptionService as? SFSpeechTranscriptionService {
                 sfService.updateLocale(identifier: selectedLanguage)
             }
+            // 更新目前配置狀態，避免切換引擎後狀態不同步
+            currentTranscriptionConfig = TranscriptionConfig(
+                engine: .apple,
+                modelPath: "",
+                language: selectedLanguage
+            )
             
         case .whisper:
             // 檢查模型路徑是否存在
@@ -780,14 +786,18 @@ class VoiceInputViewModel: ObservableObject {
 
              // T3-2：依配置比對決定是否重建 Whisper 服務
              // 比對 engine / modelPath / language 三項，任一不同就重建
+             // 加強檢查：若服務實例型別不符，也必須重建
              let targetConfig = TranscriptionConfig(
                  engine: .whisper,
                  modelPath: whisperModelPath,
                  language: selectedLanguage
              )
-             if currentTranscriptionConfig != targetConfig {
+             
+             let isTypeMismatch = !(transcriptionService is WhisperTranscriptionService)
+             
+             if currentTranscriptionConfig != targetConfig || isTypeMismatch {
                  if let modelURL = resolveModelURL() {
-                     logger.info("Whisper 配置已變更，重建服務，模型路徑: \(modelURL.path)")
+                     logger.info("Whisper 配置變更或服務型別不符，重建服務，模型路徑: \(modelURL.path)")
                      transcriptionService = WhisperTranscriptionService(
                          modelURL: modelURL,
                          language: selectedLanguage
