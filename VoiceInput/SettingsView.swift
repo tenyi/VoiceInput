@@ -57,6 +57,8 @@ struct GeneralSettingsView: View {
 
     /// 目前選擇的快捷鍵
     @State private var selectedHotkey: HotkeyOption = HotkeyOption.rightCommand
+    /// T5-1：目前選擇的觸發模式
+    @State private var selectedTriggerMode: RecordingTriggerMode = .pressAndHold
 
     var body: some View {
         Form {
@@ -145,12 +147,29 @@ struct GeneralSettingsView: View {
                 .onChange(of: selectedHotkey) { _, newValue in
                     viewModel.updateHotkey(newValue)
                 }
+
+                // T5-1：觸發模式選擇（即時生效）
+                Picker("觸發模式", selection: $selectedTriggerMode) {
+                    ForEach(RecordingTriggerMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: selectedTriggerMode) { _, newValue in
+                    viewModel.updateRecordingTriggerMode(newValue)
+                }
             } header: {
                 Text("一般設定")
             } footer: {
-               Text("按下快捷鍵即可開始/停止錄音。")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if selectedTriggerMode == .pressAndHold {
+                    Text("按住快捷鍵開始錄音，放開即送出轉寫結果。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("按一次開始錄音，再按一次停止並將結果送出。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding()
@@ -166,9 +185,13 @@ struct GeneralSettingsView: View {
             }
         }
         .onAppear {
-            // 載入已儲存的設定
+            // 載入已儲存的快捷鍵設定
             if let saved = HotkeyOption(rawValue: viewModel.selectedHotkey) {
                 selectedHotkey = saved
+            }
+            // 載入已儲存的觸發模式設定
+            if let savedMode = RecordingTriggerMode(rawValue: viewModel.recordingTriggerMode) {
+                selectedTriggerMode = savedMode
             }
         }
     }

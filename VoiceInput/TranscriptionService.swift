@@ -10,7 +10,7 @@ protocol TranscriptionServiceProtocol {
 
     /// 啟動服務
     func start()
-    /// 停止服務
+    /// 停止服務（優雅停止：等待最終結果）
     func stop()
     /// 處理音訊緩衝區
     func process(buffer: AVAudioPCMBuffer)
@@ -29,7 +29,11 @@ class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     /// 識別任務，用於追蹤識別進度
     private var recognitionTask: SFSpeechRecognitionTask?
-    
+    /// 最終結果等待 timeout 計時器（T1-2：避免永久卡住）
+    private var finalizeTimeoutTimer: Timer?
+    /// 是否已進入「等待最終結果」狀態（防止重複清理）
+    private var isWaitingForFinal = false
+
     /// 更新語言設定
     func updateLocale(identifier: String) {
         if speechRecognizer?.locale.identifier != identifier {
@@ -37,26 +41,41 @@ class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
             logger.info("語音識別語言已更新為: \(identifier)")
         }
     }
-    
+
     /// 初始化並啟動識別請求
     func start() {
+        // 確保舊狀態已清理（避免重複啟動）
+        cleanupRecognition()
+
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let recognitionRequest = recognitionRequest else { 
+        guard let recognitionRequest = recognitionRequest else {
             logger.error("無法建立識別請求 (Unable to create request)")
-            return 
+            return
         }
         // 啟用部分結果回報 (即時顯示)
         recognitionRequest.shouldReportPartialResults = true
+        isWaitingForFinal = false
     }
-    
-    /// 停止識別任務
+
+    /// 優雅停止識別任務：
+    /// 1. 先呼叫 endAudio() 告知不再有新音訊
+    /// 2. 等待 isFinal callback（最多 1.5 秒）
+    /// 3. 超時後才強制 cancel()（T1-2）
     func stop() {
+        logger.info("SFSpeechTranscriptionService: 開始優雅停止流程")
+        // 通知 SFSpeech 不再有新音訊，觸發最終辨識
         recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
+        isWaitingForFinal = true
+
+        // T1-2：設定 timeout，超時才強制 cancel 並清理
+        finalizeTimeoutTimer?.invalidate()
+        finalizeTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+            guard let self = self, self.isWaitingForFinal else { return }
+            self.logger.warning("SFSpeechTranscriptionService: 等待最終結果逾時，強制 cancel")
+            self.cleanupRecognition()
+        }
     }
-    
+
     /// 處理接收到的音訊緩衝區
     func process(buffer: AVAudioPCMBuffer) {
         guard let recognitionRequest = recognitionRequest else { return }
@@ -83,9 +102,12 @@ class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
                         self.logger.info("轉錄結果: \(transcription)")
                         self.onTranscriptionResult?(.success(transcription))
                     }
-                    
+
                     if result.isFinal {
-                         return
+                        // 收到最終結果，取消 timeout 並清理資源
+                        self.logger.info("SFSpeechTranscriptionService: 收到 isFinal，清理資源")
+                        self.cleanupRecognition()
+                        return
                     }
                 }
 
@@ -102,9 +124,20 @@ class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
                         self.logger.error("識別錯誤 (Recognition error): \(error.localizedDescription)")
                         self.onTranscriptionResult?(.failure(error))
                     }
-                    self.stop()
+                    self.cleanupRecognition()
                 }
             }
         }
+    }
+
+    /// 統一清理路徑：取消 timeout、cancel task、釋放 request
+    private func cleanupRecognition() {
+        finalizeTimeoutTimer?.invalidate()
+        finalizeTimeoutTimer = nil
+        isWaitingForFinal = false
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        logger.info("SFSpeechTranscriptionService: 資源已清理")
     }
 }

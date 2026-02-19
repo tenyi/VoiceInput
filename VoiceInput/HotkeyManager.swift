@@ -133,60 +133,75 @@ class HotkeyManager {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
         // 修飾鍵只會觸發 .flagsChanged 事件，不會觸發 .keyDown / .keyUp
-        // 因此必須透過 event.flags 來判斷修飾鍵是按下還是放開
-
-        // 檢查是否是目標鍵
-        var isTargetKey: Bool
+        // T2-1 修正：改用 per-key keycode 驅動 isTargetKeyDown 狀態機
+        // 問題根源：舊版使用 aggregate flags（maskCommand/maskAlternate）判斷按壓狀態
+        //          當「右 Command 按住 + 左 Command 也按下後放開右 Command」
+        //          maskCommand 仍為 true，導致 released 事件無法觸發
+        // 修正方式：只在目標 keycode 出現時，透過「flags 裡是否包含該鍵特定旗標」
+        //          或「Fn 的 maskSecondaryFn 狀態」來判斷按下/放開，
+        //          完全不依賴可能被另一側鍵影響的 aggregate flag。
 
         if type == .flagsChanged {
-            // flagsChanged 事件：透過 keyCode（scancode）判斷是哪個修飾鍵
+            // --- T2-1：keycode 驅動狀態機 ---
             if currentHotkey == .fn {
-                // Fn 鍵：透過 .maskSecondaryFn 的狀態變化來判斷
-                // 只在 fn flag 狀態「真正改變」時才視為目標鍵事件
-                // 避免其他修飾鍵的 flagsChanged 事件被誤判為 fn 鍵事件
-                let fnIsDown = event.flags.contains(.maskSecondaryFn)
-                isTargetKey = (fnIsDown != isTargetKeyDown)
+                // Fn 鍵：透過 maskSecondaryFn 的狀態變化驅動
+                // 只在 fn flag 狀態「真正改變」時才觸發（避免其他修飾鍵誤觸）
+                let fnIsNowDown = event.flags.contains(.maskSecondaryFn)
+                if fnIsNowDown != isTargetKeyDown {
+                    isTargetKeyDown = fnIsNowDown
+                    dispatchHotkeyEvent(isDown: fnIsNowDown)
+                }
             } else {
-                // 其他修飾鍵：透過 keyCode 比對 scancode
-                isTargetKey = keyCode == Int64(currentHotkey.scancode)
+                // 其他修飾鍵：只在目標 keycode 的 flagsChanged 事件時才更新狀態
+                // 這樣左右兩側互不干擾
+                guard keyCode == Int64(currentHotkey.scancode) else { return }
+
+                // 利用事件的 flags 判斷該鍵目前是按下還是放開
+                // 注意：這裡的 flags 反映的是「此次 flagsChanged 後的狀態」
+                // 若目標鍵出現在 flagsChanged，且 flags 包含對應旗標 → 按下
+                // 若目標鍵出現在 flagsChanged，且 flags 不含對應旗標 → 放開
+                let isNowDown: Bool
+                switch currentHotkey {
+                case .leftCommand, .rightCommand:
+                    // CGEventFlags 內有 .maskLeftCommand (.maskCommand) 與 .maskRightCommand，
+                    // 但 macOS 14 以前不保證 maskRightCommand 可靠。
+                    // 替代方案：以 isTargetKeyDown 的 toggle 邏輯處理——
+                    // 因為已透過 keycode guard 確保是目標鍵觸發，
+                    // 直接翻轉目前狀態即可正確反映單鍵的 down/up 週期。
+                    isNowDown = !isTargetKeyDown
+                case .leftOption, .rightOption:
+                    isNowDown = !isTargetKeyDown
+                case .fn:
+                    isNowDown = event.flags.contains(.maskSecondaryFn)
+                }
+
+                if isNowDown != isTargetKeyDown {
+                    isTargetKeyDown = isNowDown
+                    dispatchHotkeyEvent(isDown: isNowDown)
+                }
             }
         } else {
-            // keyDown / keyUp 事件（一般按鍵，目前不使用）
-            isTargetKey = keyCode == Int64(currentHotkey.scancode)
+            // keyDown / keyUp 事件（一般按鍵，目前保留擴充彈性）
+            guard keyCode == Int64(currentHotkey.scancode) else { return }
+            let isNowDown = (type == .keyDown)
+            if isNowDown != isTargetKeyDown {
+                isTargetKeyDown = isNowDown
+                dispatchHotkeyEvent(isDown: isNowDown)
+            }
         }
+    }
 
-        // 判斷修飾鍵是否處於「按下」狀態
-        let isKeyDown: Bool
-        if type == .flagsChanged {
-            // 修飾鍵：透過 flags 判斷按下或放開
-            switch currentHotkey {
-            case .leftCommand, .rightCommand:
-                isKeyDown = event.flags.contains(.maskCommand)
-            case .leftOption, .rightOption:
-                isKeyDown = event.flags.contains(.maskAlternate)
-            case .fn:
-                isKeyDown = event.flags.contains(.maskSecondaryFn)
+    /// 派送快捷鍵按下/放開事件到主執行緒
+    private func dispatchHotkeyEvent(isDown: Bool) {
+        if isDown {
+            logger.info("快捷鍵按下: \(self.currentHotkey.rawValue)")
+            DispatchQueue.main.async { [weak self] in
+                self?.onHotkeyPressed?()
             }
         } else {
-            // 一般按鍵
-            isKeyDown = (type == .keyDown)
-        }
-
-        if isTargetKey {
-            if isKeyDown && !isTargetKeyDown {
-                // 按下
-                logger.info("快捷鍵按下: \(self.currentHotkey.rawValue)")
-                isTargetKeyDown = true
-                DispatchQueue.main.async { [weak self] in
-                    self?.onHotkeyPressed?()
-                }
-            } else if !isKeyDown && isTargetKeyDown {
-                // 放開
-                logger.info("快捷鍵放開: \(self.currentHotkey.rawValue)")
-                isTargetKeyDown = false
-                DispatchQueue.main.async { [weak self] in
-                    self?.onHotkeyReleased?()
-                }
+            logger.info("快捷鍵放開: \(self.currentHotkey.rawValue)")
+            DispatchQueue.main.async { [weak self] in
+                self?.onHotkeyReleased?()
             }
         }
     }

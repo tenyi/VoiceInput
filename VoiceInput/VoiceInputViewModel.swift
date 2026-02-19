@@ -76,6 +76,8 @@ class VoiceInputViewModel: ObservableObject {
 
     @AppStorage("autoInsertText") var autoInsertText: Bool = true
     @AppStorage("selectedHotkey") var selectedHotkey: String = HotkeyOption.rightCommand.rawValue
+    /// T4-1：錄音觸發模式（按住說話 / 單鍵切換）
+    @AppStorage("recordingTriggerMode") var recordingTriggerMode: String = RecordingTriggerMode.pressAndHold.rawValue
     @AppStorage("selectedSpeechEngine") var selectedSpeechEngine: String = SpeechRecognitionEngine.apple.rawValue
     @AppStorage("selectedInputDeviceID") private var selectedInputDeviceStorage: String = ""
 
@@ -187,8 +189,12 @@ class VoiceInputViewModel: ObservableObject {
             self?.reconcileSelectedInputDevice()
         }
     }
-    /// 轉錄服務 (目前支援 SFSpeech)
+    /// 轉錄服務 (目前支援 SFSpeech / Whisper)
     private var transcriptionService: TranscriptionServiceProtocol = SFSpeechTranscriptionService()
+    /// T3-1：儲存目前轉錄服務的配置（引擎/模型路徑/語言），用於配置比對
+    private var currentTranscriptionConfig: TranscriptionConfig?
+    /// T4-2：快捷鍵互動策略層，負責將按鍵事件轉換為開始/停止語意
+    private var hotkeyController: HotkeyInteractionController = HotkeyInteractionController()
     /// 轉錄管理器 - 負責轉錄狀態管理
     @ObservedObject var transcriptionManager = TranscriptionManager()
     /// 輸入模擬器 (用於插入文字)
@@ -647,24 +653,34 @@ class VoiceInputViewModel: ObservableObject {
         }
     }
 
-    /// 設定快捷鍵監聽
+    /// 設定快捷鍵監聽（T4-3：摿 HotkeyManager 事件接入 HotkeyInteractionController）
     private func setupHotkeys() {
         // 套用儲存的快捷鍵設定
         if let savedHotkey = HotkeyOption(rawValue: selectedHotkey) {
             HotkeyManager.shared.setHotkey(savedHotkey)
         }
 
-        // 按下快捷鍵時開始錄音
-        HotkeyManager.shared.onHotkeyPressed = { [weak self] in
-            DispatchQueue.main.async {
-                self?.handleHotkeyPressed()
-            }
+        // 套用儲存的觸發模式設定
+        let savedMode = RecordingTriggerMode(rawValue: recordingTriggerMode) ?? .pressAndHold
+        hotkeyController.mode = savedMode
+
+        // Controller 輸出回調接入 ViewModel 的主流程
+        hotkeyController.onStartRecording = { [weak self] in
+            self?.handleStartRecordingRequest()
+        }
+        hotkeyController.onStopAndTranscribe = { [weak self] in
+            self?.handleStopRecordingRequest()
         }
 
-        // 放開快捷鍵時停止錄音並開始轉寫
+        // HotkeyManager 原始按鍵事件 → 轉發給 Controller
+        HotkeyManager.shared.onHotkeyPressed = { [weak self] in
+            DispatchQueue.main.async {
+                self?.hotkeyController.hotkeyPressed()
+            }
+        }
         HotkeyManager.shared.onHotkeyReleased = { [weak self] in
             DispatchQueue.main.async {
-                self?.handleHotkeyReleased()
+                self?.hotkeyController.hotkeyReleased()
             }
         }
 
@@ -678,12 +694,22 @@ class VoiceInputViewModel: ObservableObject {
         HotkeyManager.shared.setHotkey(option)
     }
 
+    /// T4-3：更新觸發模式（即時生效，不需重啟 App）
+    func updateRecordingTriggerMode(_ mode: RecordingTriggerMode) {
+        recordingTriggerMode = mode.rawValue
+        hotkeyController.mode = mode
+        logger.info("觸發模式已切換為: \(mode.rawValue)")
+    }
+
     // MARK: - 快捷鍵處理
 
-    /// 處理快捷鍵按下（開始錄音）
-    private func handleHotkeyPressed() {
-        // 如果正在轉寫中，忽略
-        guard appState == .idle else { return }
+    /// Controller 回調：處理開始錄音請求
+    private func handleStartRecordingRequest() {
+        // 如果不在閒置狀態，忽略
+        guard appState == .idle else {
+            logger.info("[handleStartRecordingRequest] 非 idle 狀態，忽略 (目前: \(String(describing: self.appState))")
+            return
+        }
 
         // 檢查權限
         guard audioEngine.permissionGranted else {
@@ -698,15 +724,18 @@ class VoiceInputViewModel: ObservableObject {
         startRecording()
     }
 
-    /// 處理快捷鍵放開（停止錄音，開始轉寫）
-    private func handleHotkeyReleased() {
+    /// Controller 回調：處理停止錄音請求
+    private func handleStopRecordingRequest() {
         // 只有在錄音狀態才處理
-        guard appState == .recording else { return }
+        guard appState == .recording else {
+            logger.info("[handleStopRecordingRequest] 非 recording 狀態，忽略")
+            return
+        }
 
         // 防抖：錄音時間少於 300ms 則忽略放開事件
         if let startTime = recordingStartTime,
            Date().timeIntervalSince(startTime) < 0.3 {
-            logger.warning("錄音時間過短（< 300ms），忽略放開事件")
+            logger.warning("錄音時間過短（< 300ms），忽略停止請求")
             return
         }
 
@@ -747,32 +776,22 @@ class VoiceInputViewModel: ObservableObject {
                  return
             }
 
-             // 初始化或重用 Whisper 服務
-            // 若當前服務不是 Whisper 或模型路徑改變，則重新初始化
-            // 這裡簡化邏輯：每次開始錄音前檢查是否需要切換
-             if !(transcriptionService is WhisperTranscriptionService) {
+             // T3-2：依配置比對決定是否重建 Whisper 服務
+             // 比對 engine / modelPath / language 三項，任一不同就重建
+             let targetConfig = TranscriptionConfig(
+                 engine: .whisper,
+                 modelPath: whisperModelPath,
+                 language: selectedLanguage
+             )
+             if currentTranscriptionConfig != targetConfig {
                  if let modelURL = resolveModelURL() {
-                     logger.info("正在初始化 Whisper 服務，模型路徑: \(modelURL.path)")
-
-                     // 創建 WhisperTranscriptionService，它會自己管理 security-scoped resource
+                     logger.info("Whisper 配置已變更，重建服務，模型路徑: \(modelURL.path)")
                      transcriptionService = WhisperTranscriptionService(
                          modelURL: modelURL,
                          language: selectedLanguage
                      )
-
-                     // 檢查是否創建成功
-                     if transcriptionService is WhisperTranscriptionService {
-                         logger.info("WhisperTranscriptionService 創建成功")
-                     } else {
-                         logger.error("WhisperTranscriptionService 創建失敗")
-                         transcribedText = "Whisper 服務初始化失敗，請重新選擇模型"
-                         WindowManager.shared.showFloatingWindow(isRecording: true)
-                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                             WindowManager.shared.hideFloatingWindow()
-                             self.transcribedText = "等待輸入..."
-                         }
-                         return
-                     }
+                     currentTranscriptionConfig = targetConfig
+                     logger.info("WhisperTranscriptionService 建立成功")
                  } else {
                      logger.error("無法解析模型 URL")
                      transcribedText = "無法解析模型 URL，請重新選擇模型"
@@ -783,6 +802,8 @@ class VoiceInputViewModel: ObservableObject {
                      }
                      return
                  }
+             } else {
+                 logger.info("Whisper 配置未變更，重用現有服務")
              }
 
         }
@@ -821,8 +842,9 @@ class VoiceInputViewModel: ObservableObject {
         // 記錄錄音開始時間（用於防抖）
         recordingStartTime = Date()
 
-        // 立即設定狀態為錄音中，確保按鍵放開時能正確處理
+        // 錄音啟動成功，通知 Controller
         appState = .recording
+        hotkeyController.isRecording = true
 
         do {
             try audioEngine.startRecording { [weak self] buffer in
@@ -845,6 +867,8 @@ class VoiceInputViewModel: ObservableObject {
         // 停止錄音
         audioEngine.stopRecording()
         transcriptionService.stop()
+        // 通知 Controller 錄音已結束
+        hotkeyController.isRecording = false
 
         // 切換到轉寫狀態
         appState = .transcribing
@@ -1007,9 +1031,9 @@ class VoiceInputViewModel: ObservableObject {
     /// 切換錄音狀態 (開始/停止) - 保留作為按鈕使用
     func toggleRecording() {
         if isRecording {
-            handleHotkeyReleased()
+            handleStopRecordingRequest()
         } else if appState == .idle {
-            handleHotkeyPressed()
+            handleStartRecordingRequest()
         }
     }
 

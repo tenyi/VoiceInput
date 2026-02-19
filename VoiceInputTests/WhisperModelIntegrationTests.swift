@@ -93,6 +93,7 @@ private extension WhisperModelIntegrationTests {
             let modelsDirectory = projectRoot.appendingPathComponent("models", isDirectory: true)
             let audioURL = testsDirectory.appendingPathComponent("test.m4a", isDirectory: false)
 
+            // T6-2：若測試音檔不存在，明確標記為跳過（不視為失敗）
             guard FileManager.default.fileExists(atPath: audioURL.path) else {
                 throw TestError.missingTestAudio(audioURL.path)
             }
