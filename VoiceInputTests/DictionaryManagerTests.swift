@@ -5,18 +5,27 @@ import XCTest
 final class DictionaryManagerTests: XCTestCase {
     var manager: DictionaryManager!
     var userDefaults: UserDefaults!
+    private var storageKey: String!
+    private var suiteName: String!
 
     override func setUp() {
         super.setUp()
-        // Create a temporary user defaults suite
-        userDefaults = UserDefaults(suiteName: "DictionaryManagerTests")
-        userDefaults.removePersistentDomain(forName: "DictionaryManagerTests")
-        manager = DictionaryManager(userDefaults: userDefaults)
+        // Create an isolated storage key per test case
+        suiteName = "test.suite.\(UUID().uuidString)"
+        userDefaults = UserDefaults(suiteName: suiteName)
+        userDefaults.removePersistentDomain(forName: suiteName)
+        
+        storageKey = "userDictionaryItems"
+        manager = DictionaryManager(userDefaults: userDefaults, storageKey: storageKey)
     }
 
     override func tearDown() {
-        userDefaults.removePersistentDomain(forName: "DictionaryManagerTests")
+        if let suiteName = suiteName {
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
         userDefaults = nil
+        storageKey = nil
+        suiteName = nil
         manager = nil
         super.tearDown()
     }
@@ -57,8 +66,20 @@ final class DictionaryManagerTests: XCTestCase {
     
     func testPersistence() {
         manager.addItem(original: "save", replacement: "me")
+        
+        // Ensure data is written
+        userDefaults.synchronize()
+
+        // 驗證資料已寫入 UserDefaults
+        let rawData = userDefaults.data(forKey: storageKey)
+        XCTAssertNotNil(rawData)
+
+        let decoded = try? JSONDecoder().decode([DictionaryItem].self, from: rawData ?? Data())
+        XCTAssertEqual(decoded?.count, 1)
+        XCTAssertEqual(decoded?.first?.original, "save")
+
         // Create a new manager with the same user defaults
-        let newManager = DictionaryManager(userDefaults: userDefaults)
+        let newManager = DictionaryManager(userDefaults: userDefaults, storageKey: storageKey)
         XCTAssertEqual(newManager.items.count, 1)
         XCTAssertEqual(newManager.items.first?.original, "save")
     }

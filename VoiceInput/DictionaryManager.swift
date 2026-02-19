@@ -17,38 +17,39 @@ struct DictionaryItem: Identifiable, Codable, Equatable {
 }
 
 class DictionaryManager: ObservableObject {
-    @Published var items: [DictionaryItem] = [] {
-        didSet {
-            saveItems()
-        }
-    }
+    @Published var items: [DictionaryItem] = []
 
-    private let storageKey = "userDictionaryItems"
+    private let storageKey: String
     private let userDefaults: UserDefaults
 
     static let shared = DictionaryManager()
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(userDefaults: UserDefaults = .standard, storageKey: String = "userDictionaryItems") {
         self.userDefaults = userDefaults
+        self.storageKey = storageKey
         loadItems()
     }
 
     func addItem(original: String, replacement: String) {
         let newItem = DictionaryItem(original: original, replacement: replacement)
         items.append(newItem)
+        saveItems()
     }
 
     func deleteItem(at offsets: IndexSet) {
         items.remove(atOffsets: offsets)
+        saveItems()
     }
     
     func deleteItem(_ item: DictionaryItem) {
         items.removeAll { $0.id == item.id }
+        saveItems()
     }
 
     func updateItem(_ item: DictionaryItem) {
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items[index] = item
+            saveItems()
         }
     }
 

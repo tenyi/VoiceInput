@@ -705,9 +705,10 @@ class VoiceInputViewModel: ObservableObject {
 
     /// Controller 回調：處理開始錄音請求
     private func handleStartRecordingRequest() {
+        logger.info("[HotkeyFlow] 收到 start 請求，mode=\(self.recordingTriggerMode), appState=\(String(describing: self.appState))")
         // 如果不在閒置狀態，忽略
         guard appState == .idle else {
-            logger.info("[handleStartRecordingRequest] 非 idle 狀態，忽略 (目前: \(String(describing: self.appState))")
+            logger.info("[HotkeyFlow] 忽略 start：非 idle，appState=\(String(describing: self.appState))")
             return
         }
 
@@ -726,9 +727,10 @@ class VoiceInputViewModel: ObservableObject {
 
     /// Controller 回調：處理停止錄音請求
     private func handleStopRecordingRequest() {
+        logger.info("[HotkeyFlow] 收到 stop 請求，mode=\(self.recordingTriggerMode), appState=\(String(describing: self.appState))")
         // 只有在錄音狀態才處理
         guard appState == .recording else {
-            logger.info("[handleStopRecordingRequest] 非 recording 狀態，忽略")
+            logger.info("[HotkeyFlow] 忽略 stop：非 recording，appState=\(String(describing: self.appState))")
             return
         }
 
@@ -865,6 +867,7 @@ class VoiceInputViewModel: ObservableObject {
     /// 停止錄音並開始轉寫
     private func stopRecordingAndTranscribe() {
         // 停止錄音
+        logger.info("[HotkeyFlow] stopRecordingAndTranscribe：開始停止錄音與轉寫")
         audioEngine.stopRecording()
         transcriptionService.stop()
         // 通知 Controller 錄音已結束

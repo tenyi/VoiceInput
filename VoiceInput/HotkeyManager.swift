@@ -34,6 +34,11 @@ enum HotkeyOption: String, CaseIterable {
 
 /// 負責管理全域快捷鍵的類別
 class HotkeyManager {
+    enum HotkeyTransition: Equatable {
+        case none
+        case pressed
+        case released
+    }
     /// 單例實例
     static let shared = HotkeyManager()
     
@@ -132,53 +137,15 @@ class HotkeyManager {
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-        // 修飾鍵只會觸發 .flagsChanged 事件，不會觸發 .keyDown / .keyUp
-        // T2-1 修正：改用 per-key keycode 驅動 isTargetKeyDown 狀態機
-        // 問題根源：舊版使用 aggregate flags（maskCommand/maskAlternate）判斷按壓狀態
-        //          當「右 Command 按住 + 左 Command 也按下後放開右 Command」
-        //          maskCommand 仍為 true，導致 released 事件無法觸發
-        // 修正方式：只在目標 keycode 出現時，透過「flags 裡是否包含該鍵特定旗標」
-        //          或「Fn 的 maskSecondaryFn 狀態」來判斷按下/放開，
-        //          完全不依賴可能被另一側鍵影響的 aggregate flag。
-
         if type == .flagsChanged {
-            // --- T2-1：keycode 驅動狀態機 ---
-            if currentHotkey == .fn {
-                // Fn 鍵：透過 maskSecondaryFn 的狀態變化驅動
-                // 只在 fn flag 狀態「真正改變」時才觸發（避免其他修飾鍵誤觸）
-                let fnIsNowDown = event.flags.contains(.maskSecondaryFn)
-                if fnIsNowDown != isTargetKeyDown {
-                    isTargetKeyDown = fnIsNowDown
-                    dispatchHotkeyEvent(isDown: fnIsNowDown)
-                }
-            } else {
-                // 其他修飾鍵：只在目標 keycode 的 flagsChanged 事件時才更新狀態
-                // 這樣左右兩側互不干擾
-                guard keyCode == Int64(currentHotkey.scancode) else { return }
-
-                // 利用事件的 flags 判斷該鍵目前是按下還是放開
-                // 注意：這裡的 flags 反映的是「此次 flagsChanged 後的狀態」
-                // 若目標鍵出現在 flagsChanged，且 flags 包含對應旗標 → 按下
-                // 若目標鍵出現在 flagsChanged，且 flags 不含對應旗標 → 放開
-                let isNowDown: Bool
-                switch currentHotkey {
-                case .leftCommand, .rightCommand:
-                    // CGEventFlags 內有 .maskLeftCommand (.maskCommand) 與 .maskRightCommand，
-                    // 但 macOS 14 以前不保證 maskRightCommand 可靠。
-                    // 替代方案：以 isTargetKeyDown 的 toggle 邏輯處理——
-                    // 因為已透過 keycode guard 確保是目標鍵觸發，
-                    // 直接翻轉目前狀態即可正確反映單鍵的 down/up 週期。
-                    isNowDown = !isTargetKeyDown
-                case .leftOption, .rightOption:
-                    isNowDown = !isTargetKeyDown
-                case .fn:
-                    isNowDown = event.flags.contains(.maskSecondaryFn)
-                }
-
-                if isNowDown != isTargetKeyDown {
-                    isTargetKeyDown = isNowDown
-                    dispatchHotkeyEvent(isDown: isNowDown)
-                }
+            let transition = processFlagsChangedEvent(keyCode: keyCode, flags: event.flags)
+            switch transition {
+            case .pressed:
+                dispatchHotkeyEvent(isDown: true)
+            case .released:
+                dispatchHotkeyEvent(isDown: false)
+            case .none:
+                break
             }
         } else {
             // keyDown / keyUp 事件（一般按鍵，目前保留擴充彈性）
@@ -189,6 +156,31 @@ class HotkeyManager {
                 dispatchHotkeyEvent(isDown: isNowDown)
             }
         }
+    }
+
+    /// T2-1：keycode 驅動的 flagsChanged 狀態機，回傳可重播的狀態轉換結果。
+    @discardableResult
+    func processFlagsChangedEvent(keyCode: Int64, flags: CGEventFlags) -> HotkeyTransition {
+        if currentHotkey == .fn {
+            let fnIsNowDown = flags.contains(.maskSecondaryFn)
+            guard fnIsNowDown != isTargetKeyDown else { return .none }
+            isTargetKeyDown = fnIsNowDown
+            return fnIsNowDown ? .pressed : .released
+        }
+
+        // 其他修飾鍵：僅處理目標鍵 keycode 的 flagsChanged
+        guard keyCode == Int64(currentHotkey.scancode) else { return .none }
+
+        // 目標鍵事件觸發時，以目前狀態翻轉判定 down/up，避免受同類另一側鍵影響
+        let isNowDown = !isTargetKeyDown
+        guard isNowDown != isTargetKeyDown else { return .none }
+        isTargetKeyDown = isNowDown
+        return isNowDown ? .pressed : .released
+    }
+
+    /// 測試輔助：重置按鍵內部狀態
+    func resetStateForTesting() {
+        isTargetKeyDown = false
     }
 
     /// 派送快捷鍵按下/放開事件到主執行緒

@@ -9,12 +9,22 @@ struct WhisperModelIntegrationTests {
     func whisperModels_canLoadAndTranscribeLocalAudio() async throws {
         let context = try TestContext.make()
 
+        if let skipReason = context.skipReason {
+            print("SKIP WhisperModelIntegrationTests: \(skipReason)")
+            return
+        }
+
         #expect(!context.modelURLs.isEmpty, "找不到任何 .bin 模型檔，請確認 models 目錄")
+
+        guard let audioURL = context.audioURL else {
+            Issue.record("測試上下文建立失敗：audioURL 為空")
+            return
+        }
 
         for modelURL in context.modelURLs {
             let transcription = try await Self.runTranscription(
                 modelURL: modelURL,
-                audioURL: context.audioURL
+                audioURL: audioURL
             )
 
             let trimmed = transcription.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -85,7 +95,8 @@ struct WhisperModelIntegrationTests {
 private extension WhisperModelIntegrationTests {
     struct TestContext {
         let modelURLs: [URL]
-        let audioURL: URL
+        let audioURL: URL?
+        let skipReason: String?
 
         static func make() throws -> TestContext {
             let testsDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -95,7 +106,11 @@ private extension WhisperModelIntegrationTests {
 
             // T6-2：若測試音檔不存在，明確標記為跳過（不視為失敗）
             guard FileManager.default.fileExists(atPath: audioURL.path) else {
-                throw TestError.missingTestAudio(audioURL.path)
+                return TestContext(
+                    modelURLs: [],
+                    audioURL: nil,
+                    skipReason: "找不到測試音檔：\(audioURL.path)"
+                )
             }
 
             let modelURLs = try FileManager.default
@@ -103,7 +118,7 @@ private extension WhisperModelIntegrationTests {
                 .filter { $0.pathExtension.lowercased() == "bin" }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
-            return TestContext(modelURLs: modelURLs, audioURL: audioURL)
+            return TestContext(modelURLs: modelURLs, audioURL: audioURL, skipReason: nil)
         }
     }
 
@@ -121,14 +136,11 @@ private extension WhisperModelIntegrationTests {
     }
 
     enum TestError: LocalizedError {
-        case missingTestAudio(String)
         case audioBufferAllocationFailed
         case timeout(model: String)
 
         var errorDescription: String? {
             switch self {
-            case .missingTestAudio(let path):
-                return "找不到測試音檔：\(path)"
             case .audioBufferAllocationFailed:
                 return "無法建立音訊 buffer"
             case .timeout(let model):
