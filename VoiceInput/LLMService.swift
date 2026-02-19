@@ -41,20 +41,24 @@ class LLMService {
     /// 正規化 URL,確保包含有效的 scheme
     /// - Parameter urlString: 原始 URL 字串
     /// - Returns: 正規化後的 URL 字串
-    private func normalizeURL(_ urlString: String) -> String {
+    /// 正規化 URL，確保包含有效的 scheme
+    /// 設計為 static，方便外部（如單元測試）直接呼叫，不需要 LLMService.shared
+    /// - Parameter urlString: 原始 URL 字串
+    /// - Returns: 正規化後的 URL 字串
+    static func normalizeURL(_ urlString: String) -> String {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // 如果已經有 scheme,直接返回
+
+        // 若已有 scheme，直接返回
         if trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") {
             return trimmed
         }
-        
-        // 如果是 localhost 或 127.0.0.1,使用 http://
+
+        // localhost / 127.0.0.1 使用 http（本機不加密）
         if trimmed.hasPrefix("localhost") || trimmed.hasPrefix("127.0.0.1") {
             return "http://\(trimmed)"
         }
-        
-        // 其他情況使用 https://
+
+        // 其他遠端主機使用 https
         return "https://\(trimmed)"
     }
 
@@ -127,10 +131,10 @@ class LLMService {
             ["role": "user", "content": text]
         ]
 
+        // 不加入 temperature，新式模型可能不支援此參數
         let body: [String: Any] = [
             "model": modelName,
-            "messages": messages,
-            "temperature": 0.3
+            "messages": messages
         ]
 
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -256,7 +260,7 @@ class LLMService {
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         // 驗證 URL，預設使用 http://localhost:11434
-        var baseURL = url.isEmpty ? "http://localhost:11434" : normalizeURL(url)
+        var baseURL = url.isEmpty ? "http://localhost:11434" : LLMService.normalizeURL(url)
         
         // 移除結尾的斜線，避免拼接路徑時產生雙斜線
         if baseURL.hasSuffix("/") {
@@ -284,10 +288,10 @@ class LLMService {
             ["role": "user", "content": text]
         ]
 
+        // 不加入 temperature，新式模型可能不支援此參數
         let body: [String: Any] = [
             "model": modelName,
-            "messages": messages,
-            "temperature": 0.3
+            "messages": messages
         ]
 
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -340,7 +344,7 @@ class LLMService {
             return
         }
         
-        let normalizedURL = normalizeURL(url)
+        let normalizedURL = LLMService.normalizeURL(url)
         guard let apiURL = URL(string: normalizedURL) else {
             completion(.failure(LLMServiceError.invalidConfiguration))
             return

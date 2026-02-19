@@ -156,17 +156,33 @@ class HotkeyManager {
         }
 
         // 判斷修飾鍵是否處於「按下」狀態
+        // 修正：過去只看 flags（如 .maskCommand），無法區分左右鍵
+        // 現在改為：若是目標修飾鍵的 flagsChanged 事件，用「flags 是否含有對應旗標」判斷；
+        // 但若 keyCode 不匹配目標鍵，isTargetKey 已為 false，所以下方 if 不會執行。
         let isKeyDown: Bool
         if type == .flagsChanged {
             // 修飾鍵：透過 flags 判斷按下或放開
+            // 因為 isTargetKey 已確保 keyCode 匹配，這裡只需確認對應旗標是否存在即可
             switch currentHotkey {
-            case .leftCommand, .rightCommand:
+            case .leftCommand:
+                // 左 Command：keyCode 0x37，旗標 .maskCommand
                 isKeyDown = event.flags.contains(.maskCommand)
-            case .leftOption, .rightOption:
+            case .rightCommand:
+                // 右 Command：keyCode 0x36，旗標 .maskCommand
+                isKeyDown = event.flags.contains(.maskCommand)
+            case .leftOption:
+                // 左 Option：keyCode 0x3B，旗標 .maskAlternate
+                isKeyDown = event.flags.contains(.maskAlternate)
+            case .rightOption:
+                // 右 Option：keyCode 0x3C，旗標 .maskAlternate
                 isKeyDown = event.flags.contains(.maskAlternate)
             case .fn:
+                // Fn 鍵：旗標 .maskSecondaryFn
                 isKeyDown = event.flags.contains(.maskSecondaryFn)
             }
+            // 注意：左右 Command 的 mask 相同（.maskCommand），無法單靠 flags 區分。
+            // 但因為 isTargetKey 已透過 keyCode（scancode）比對確認是目標鍵，
+            // 因此只有目標鍵的 flagsChanged 才會進入此邏輯，左右鍵不會互相干擾。
         } else {
             // 一般按鍵
             isKeyDown = (type == .keyDown)
