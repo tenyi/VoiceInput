@@ -69,9 +69,6 @@ struct TranscriptionHistoryItem: Identifiable, Codable, Equatable {
 class VoiceInputViewModel: ObservableObject {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "VoiceInputViewModel")
 
-    /// Combine 取消令 (Cancellable) 集合，用於存放訂閱
-    private var cancellables = Set<AnyCancellable>()
-
     // MARK: - 持久化設定 (AppStorage)
     @AppStorage("selectedLanguage") var selectedLanguage: String = "zh-TW"
     @AppStorage("whisperModelPath") var whisperModelPath: String = ""
@@ -198,7 +195,7 @@ class VoiceInputViewModel: ObservableObject {
     private var inputSimulator = InputSimulator.shared
 
     /// 權限管理員
-    var permissionManager = PermissionManager.shared
+    @ObservedObject var permissionManager = PermissionManager.shared
 
     /// 可選語言清單
     let availableLanguages = [
@@ -434,18 +431,6 @@ class VoiceInputViewModel: ObservableObject {
         setupAudioEngine()
         setupHotkeys()
         refreshAudioDevices()
-
-        // 解決 @AppStorage 與 @Published 混用問題：
-        // @AppStorage 屬性變更時不會自動觸發 ObservableObject.objectWillChange，
-        // 導致 Combine 訂閱者（非 SwiftUI View）無法收到通知。
-        // 解決決法：訂閱 UserDefaults.didChangeNotification，手動觸發 objectWillChange。
-        NotificationCenter.default
-            .publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
     }
 
     // MARK: - 模型導入功能
@@ -746,20 +731,67 @@ class VoiceInputViewModel: ObservableObject {
             if let sfService = transcriptionService as? SFSpeechTranscriptionService {
                 sfService.updateLocale(identifier: selectedLanguage)
             }
-
+            
         case .whisper:
-            // 嘗試設定 Whisper 服務，若失敗則顯示錯誤並中止
-            guard configureWhisperServiceIfNeeded() else { return }
+            // 檢查模型路徑是否存在
+            guard !whisperModelPath.isEmpty, FileManager.default.fileExists(atPath: whisperModelPath) else {
+                 transcribedText = "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)"
+                 WindowManager.shared.showFloatingWindow(isRecording: true)
+                 appState = .recording // 暫時進入狀態以顯示錯誤
+                 
+                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                     WindowManager.shared.hideFloatingWindow()
+                     self.appState = .idle
+                     self.transcribedText = "等待輸入..."
+                 }
+                 return
+            }
+
+             // 初始化或重用 Whisper 服務
+            // 若當前服務不是 Whisper 或模型路徑改變，則重新初始化
+            // 這裡簡化邏輯：每次開始錄音前檢查是否需要切換
+             if !(transcriptionService is WhisperTranscriptionService) {
+                 if let modelURL = resolveModelURL() {
+                     logger.info("正在初始化 Whisper 服務，模型路徑: \(modelURL.path)")
+
+                     // 創建 WhisperTranscriptionService，它會自己管理 security-scoped resource
+                     transcriptionService = WhisperTranscriptionService(
+                         modelURL: modelURL,
+                         language: selectedLanguage
+                     )
+
+                     // 檢查是否創建成功
+                     if transcriptionService is WhisperTranscriptionService {
+                         logger.info("WhisperTranscriptionService 創建成功")
+                     } else {
+                         logger.error("WhisperTranscriptionService 創建失敗")
+                         transcribedText = "Whisper 服務初始化失敗，請重新選擇模型"
+                         WindowManager.shared.showFloatingWindow(isRecording: true)
+                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                             WindowManager.shared.hideFloatingWindow()
+                             self.transcribedText = "等待輸入..."
+                         }
+                         return
+                     }
+                 } else {
+                     logger.error("無法解析模型 URL")
+                     transcribedText = "無法解析模型 URL，請重新選擇模型"
+                     WindowManager.shared.showFloatingWindow(isRecording: true)
+                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                         WindowManager.shared.hideFloatingWindow()
+                         self.transcribedText = "等待輸入..."
+                     }
+                     return
+                 }
+             }
+
         }
 
         // 顯示浮動視窗（錄音模式）
         WindowManager.shared.showFloatingWindow(isRecording: true)
 
         transcribedText = ""
-        // 清空舊的最終結果回調，確保不殘留前一次的閉包
-        transcriptionService.onFinalResult = nil
-
-        // 設定轉錄結果回調（串流式更新，包含 partial 與 final 結果）
+        // 設定轉錄結果回調
         transcriptionService.onTranscriptionResult = { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
@@ -771,10 +803,10 @@ class VoiceInputViewModel: ObservableObject {
                         if self?.selectedLanguage == "zh-TW" {
                             processedText = text.toTraditionalChinese()
                         }
-
+                        
                         // 應用字典置換
                         processedText = DictionaryManager.shared.replaceText(processedText)
-
+                        
                         self?.transcribedText = processedText
                     }
                 case .failure(let error):
@@ -809,41 +841,20 @@ class VoiceInputViewModel: ObservableObject {
     }
 
     /// 停止錄音並開始轉寫
-    /// 改用回調機制等待最終識別結果，而非固定延遲，解決長文字消失的問題
     private func stopRecordingAndTranscribe() {
-        // 停止音訊錄製
+        // 停止錄音
         audioEngine.stopRecording()
+        transcriptionService.stop()
 
-        // 切換到轉寫狀態（UI 顯示）
+        // 切換到轉寫狀態
         appState = .transcribing
 
         // 顯示浮動視窗（轉寫模式）
         WindowManager.shared.showFloatingWindow(isRecording: false)
 
-        // 用旗標防止 onFinalResult 與超時定時器重複觸發 finishTranscribing()
-        var didFinish = false
-
-        // 設定「最終識別結果」回調：
-        // Apple SFSpeechRecognizer 在 stop()/finish() 後仍需非同步時間計算最終文字，
-        // 必須等到 isFinal = true 後才能確保取得完整結果（尤其是長文字）。
-        transcriptionService.onFinalResult = { [weak self] in
-            DispatchQueue.main.async {
-                guard let self = self, !didFinish else { return }
-                didFinish = true
-                self.logger.info("收到最終識別結果，開始完成轉寫流程")
-                self.finishTranscribing()
-            }
-        }
-
-        // 呼叫 stop()（內部使用 finish()，非同步等待最終結果）
-        transcriptionService.stop()
-
-        // 安全超時保護：最長等待 5 秒，防止 Apple 後端異常時 UI 永遠卡在轉寫狀態
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-            guard let self = self, !didFinish else { return }
-            didFinish = true
-            self.logger.warning("等待最終識別結果超時（5 秒），強制完成轉寫流程")
-            self.finishTranscribing()
+        // 延遲一點時間讓用户看到轉寫動畫
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.finishTranscribing()
         }
     }
 
@@ -872,61 +883,6 @@ class VoiceInputViewModel: ObservableObject {
             // 無有效文字，直接隱藏視窗
             hideWindow()
         }
-    }
-
-    /// 顯示短暫錯誤訊息（在浮動視窗中顯示 2 秒後自動隱藏）
-    /// - Parameter message: 要顯示的錯誤訊息
-    private func showTransientError(_ message: String) {
-        transcribedText = message
-        WindowManager.shared.showFloatingWindow(isRecording: true)
-        appState = .recording // 暫時進入錄音狀態以顯示浮動視窗
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            WindowManager.shared.hideFloatingWindow()
-            self?.appState = .idle
-            self?.transcribedText = "等待輸入..."
-        }
-    }
-
-    /// 設定 Whisper 轉錄服務（若尚未初始化或需要切換）
-    /// - Returns: 若設定成功回傳 true，失敗則顯示錯誤訊息並回傳 false
-    @discardableResult
-    private func configureWhisperServiceIfNeeded() -> Bool {
-        // 檢查模型路徑是否有效
-        guard !whisperModelPath.isEmpty, FileManager.default.fileExists(atPath: whisperModelPath) else {
-            logger.error("Whisper 模型路徑無效或不存在: \(self.whisperModelPath)")
-            showTransientError("請先在設定中選擇有效的 Whisper 模型檔案 (.bin)")
-            return false
-        }
-
-        // 若當前服務已是 WhisperTranscriptionService，則沿用（不重複初始化）
-        if transcriptionService is WhisperTranscriptionService {
-            return true
-        }
-
-        // 解析模型 URL
-        guard let modelURL = resolveModelURL() else {
-            logger.error("無法解析 Whisper 模型 URL，路徑: \(self.whisperModelPath)")
-            showTransientError("無法解析模型 URL，請重新選擇模型")
-            return false
-        }
-
-        // 建立 WhisperTranscriptionService（會自行管理 security-scoped resource）
-        logger.info("正在初始化 Whisper 服務，模型路徑: \(modelURL.path)")
-        transcriptionService = WhisperTranscriptionService(
-            modelURL: modelURL,
-            language: selectedLanguage
-        )
-
-        // 驗證建立是否成功
-        guard transcriptionService is WhisperTranscriptionService else {
-            logger.error("WhisperTranscriptionService 建立失敗")
-            showTransientError("Whisper 服務初始化失敗，請重新選擇模型")
-            return false
-        }
-
-        logger.info("WhisperTranscriptionService 初始化成功")
-        return true
     }
 
     /// 執行 LLM 文字修正

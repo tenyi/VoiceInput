@@ -35,7 +35,18 @@ struct ContentView: View {
         }
         .frame(width: 360, height: 520)
         .background(Color(nsColor: .windowBackgroundColor))
-        .background(Color(nsColor: .windowBackgroundColor))
+        .sheet(isPresented: $viewModel.permissionManager.showingPermissionAlert) {
+            if let permissionType = viewModel.permissionManager.pendingPermissionType {
+                PermissionAlertView(
+                    permissionType: permissionType,
+                    onDismiss: {
+                        viewModel.permissionManager.showingPermissionAlert = false
+                        // 重新檢查權限
+                        viewModel.permissionManager.checkAllPermissions()
+                    }
+                )
+            }
+        }
     }
 
     private var mainView: some View {

@@ -83,8 +83,9 @@ class InputSimulator {
         vUp?.post(tap: .cghidEventTap)
         cmdUp?.post(tap: .cghidEventTap)
         
-        // 延遲 0.5 秒後嘗試恢復剪貼簿內容，確保貼上操作已完成
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        // 延遲一段時間後恢復剪貼簿內容，確保貼上操作已完成
+        // 增加延遲時間到 1 秒，確保貼上操作有足夠時間完成
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             // 檢查剪貼簿內容是否仍是我們設置的文字
             // 如果不是，表示貼上成功或使用者又複製了新內容
             let currentContent = pasteboard.string(forType: .string)

@@ -422,18 +422,19 @@
 			};
 			name = Release;
 		};
-		                2B15AB2D2F4028FA00780465 /* Debug */ = {
-		                        isa = XCBuildConfiguration;
-		                        buildSettings = {
-		                                ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-		                                ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-		                                AUTOMATION_APPLE_EVENTS = YES;
-		                                CODE_SIGN_STYLE = Automatic;
-		                                COMBINE_HIDPI_IMAGES = YES;
-		                                CURRENT_PROJECT_VERSION = 1;
-		                                DEVELOPMENT_TEAM = AB4P65K34Q;
-		                                ENABLE_APP_SANDBOX = NO;
-		                                ENABLE_HARDENED_RUNTIME = YES;				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+		2B15AB2D2F4028FA00780465 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				AUTOMATION_APPLE_EVENTS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AB4P65K34Q;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
@@ -525,17 +526,17 @@
 			};
 			name = Release;
 		};
-		                2B15AB302F4028FA00780465 /* Debug */ = {
-		                        isa = XCBuildConfiguration;
-		                        buildSettings = {
-		                                BUNDLE_LOADER = "$(TEST_HOST)";
-		                                CODE_SIGN_STYLE = Automatic;
-		                                CURRENT_PROJECT_VERSION = 1;
-		                                DEVELOPMENT_TEAM = AB4P65K34Q;
-		                                ENABLE_APP_SANDBOX = NO;
-		                                GENERATE_INFOPLIST_FILE = YES;
-		                                MACOSX_DEPLOYMENT_TARGET = 26.2;
-		                                MARKETING_VERSION = 1.0;				PRODUCT_BUNDLE_IDENTIFIER = com.tenyi.VoiceInputTests;
+		2B15AB302F4028FA00780465 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AB4P65K34Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tenyi.VoiceInputTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -546,17 +547,17 @@
 			};
 			name = Debug;
 		};
-		                2B15AB312F4028FA00780465 /* Release */ = {
-		                        isa = XCBuildConfiguration;
-		                        buildSettings = {
-		                                BUNDLE_LOADER = "$(TEST_HOST)";
-		                                CODE_SIGN_STYLE = Automatic;
-		                                CURRENT_PROJECT_VERSION = 1;
-		                                DEVELOPMENT_TEAM = AB4P65K34Q;
-		                                ENABLE_APP_SANDBOX = NO;
-		                                GENERATE_INFOPLIST_FILE = YES;
-		                                MACOSX_DEPLOYMENT_TARGET = 26.2;
-		                                MARKETING_VERSION = 1.0;				PRODUCT_BUNDLE_IDENTIFIER = com.tenyi.VoiceInputTests;
+		2B15AB312F4028FA00780465 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AB4P65K34Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tenyi.VoiceInputTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

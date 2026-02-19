@@ -10,33 +10,12 @@ class WindowManager: ObservableObject {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "WindowManager")
 
     private var floatingWindow: NSPanel?
-    private var permissionWindow: NSWindow? // 新增：權限提示視窗
     private var hostingController: NSHostingController<AnyView>?
-    private var permissionHostingController: NSHostingController<AnyView>?
-
-    private var cancellables = Set<AnyCancellable>()
 
     // 注入 ViewModel (需要在 VoiceInputApp 初始化時設定)
     var viewModel: VoiceInputViewModel?
 
-    private init() {
-        setupSubscriptions()
-    }
-
-    /// 設定訂閱
-    private func setupSubscriptions() {
-        // 訂閱 PermissionManager 的顯示狀態
-        PermissionManager.shared.$showingPermissionAlert
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] show in
-                if show {
-                    self?.showPermissionWindow()
-                } else {
-                    self?.closePermissionWindow()
-                }
-            }
-            .store(in: &cancellables)
-    }
+    private init() {}
 
     /// 顯示浮動面板
     /// - Parameter isRecording: true 為錄音模式，false 為轉寫模式
@@ -113,76 +92,6 @@ class WindowManager: ObservableObject {
         
         // 進行初始定位
         updateWindowPosition()
-    }
-    // MARK: - Permission Window
-
-    /// 顯示權限提示視窗
-    private func showPermissionWindow() {
-        // 確保在主執行緒
-        if !Thread.isMainThread {
-            DispatchQueue.main.async {
-                self.showPermissionWindow()
-            }
-            return
-        }
-
-        guard let permissionType = PermissionManager.shared.pendingPermissionType else { return }
-
-        // 若視窗已存在，先關閉並銷毀，確保重建時顯示正確的 permissionType 內容
-        // 修正：舊實作直接置前，導致 permissionType 改變時仍顯示舊內容
-        if let window = permissionWindow {
-            window.close()
-            permissionWindow = nil
-            permissionHostingController = nil
-        }
-
-        // 建立視圖（每次都重建以確保 permissionType 對應的內容正確）
-        let alertView = PermissionAlertView(
-            permissionType: permissionType,
-            onDismiss: {
-                PermissionManager.shared.showingPermissionAlert = false
-                PermissionManager.shared.checkAllPermissions()
-            }
-        )
-
-        // 建立 HostingController
-        let validationController = NSHostingController(rootView: AnyView(alertView))
-        self.permissionHostingController = validationController
-
-        // 建立視窗
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 280),
-            styleMask: [.titled, .closable, .fullSizeContentView], // 使用 titled 讓它不僅僅是面板
-            backing: .buffered,
-            defer: false
-        )
-
-        window.contentViewController = validationController
-        window.center() // 置中
-        window.title = "VoiceInput 權限提示"
-        window.isReleasedWhenClosed = false
-        window.level = .floating // 浮動層級，確保在最上層
-        window.backgroundColor = NSColor.windowBackgroundColor
-
-        self.permissionWindow = window
-
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    /// 關閉權限提示視窗
-    private func closePermissionWindow() {
-        // 確保在主執行緒
-        if !Thread.isMainThread {
-            DispatchQueue.main.async {
-                self.closePermissionWindow()
-            }
-            return
-        }
-
-        permissionWindow?.close()
-        permissionWindow = nil
-        permissionHostingController = nil
     }
 }
 
