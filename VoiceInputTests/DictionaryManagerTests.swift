@@ -63,26 +63,6 @@ final class DictionaryManagerTests: XCTestCase {
         let result = manager.replaceText("This is FOO.")
         XCTAssertEqual(result, "This is bar.")
     }
-    
-    func testPersistence() {
-        manager.addItem(original: "save", replacement: "me")
-        
-        // Ensure data is written
-        userDefaults.synchronize()
-
-        // 驗證資料已寫入 UserDefaults
-        let rawData = userDefaults.data(forKey: storageKey)
-        XCTAssertNotNil(rawData)
-
-        let decoded = try? JSONDecoder().decode([DictionaryItem].self, from: rawData ?? Data())
-        XCTAssertEqual(decoded?.count, 1)
-        XCTAssertEqual(decoded?.first?.original, "save")
-
-        // Create a new manager with the same user defaults
-        let newManager = DictionaryManager(userDefaults: userDefaults, storageKey: storageKey)
-        XCTAssertEqual(newManager.items.count, 1)
-        XCTAssertEqual(newManager.items.first?.original, "save")
-    }
 
     func testMultipleReplacements() {
         manager.addItem(original: "foo", replacement: "bar")

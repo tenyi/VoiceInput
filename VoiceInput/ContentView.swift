@@ -272,4 +272,5 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .environmentObject(VoiceInputViewModel())
+        .environmentObject(LLMSettingsViewModel())
 }

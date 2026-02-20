@@ -5,44 +5,7 @@ import AppKit
 import os
 import UniformTypeIdentifiers
 
-// MARK: - LLM Provider 選項
-/// LLM 服務提供者
-enum LLMProvider: String, CaseIterable {
-    case openAI = "OpenAI"
-    case anthropic = "Anthropic"
-    case ollama = "Ollama"
-    case custom = "自訂 API"
-
-    /// 是否為內建 Provider
-    var isBuiltIn: Bool {
-        return self != .custom
-    }
-}
-
-// MARK: - 自訂 LLM Provider
-/// 自訂 LLM Provider 配置（用於儲存用戶添加的 Provider）
-struct CustomLLMProvider: Identifiable, Codable, Equatable {
-    let id: UUID
-    var name: String           // 顯示名稱（如 "Qwen", "Kimi"）
-    var apiURL: String        // API 端點 URL
-    var apiKey: String        // API Key
-    var model: String         // 模型名稱
-    var prompt: String        // 自訂提示詞（可選）
-
-    init(id: UUID = UUID(), name: String, apiURL: String, apiKey: String = "", model: String = "", prompt: String = "") {
-        self.id = id
-        self.name = name
-        self.apiURL = apiURL
-        self.apiKey = apiKey
-        self.model = model
-        self.prompt = prompt
-    }
-
-    /// 顯示名稱
-    var displayName: String {
-        return name
-    }
-}
+// Removed LLMProvider enum and CustomLLMProvider struct as they are now in LLMSettingsViewModel.swift
 
 /// 應用程式狀態
 enum AppState {
@@ -118,34 +81,6 @@ class VoiceInputViewModel: ObservableObject {
 
     // MARK: - Speech Engine 選項
 
-    // MARK: - LLM 修正設定
-    /// 是否啟用 LLM 修正
-    @AppStorage("llmEnabled") var llmEnabled: Bool = false
-    /// LLM 服務提供者
-    @AppStorage("llmProvider") var llmProvider: String = LLMProvider.openAI.rawValue
-    /// API URL (Ollama 或自訂 API 使用)
-    @AppStorage("llmURL") var llmURL: String = "" {
-        didSet {
-            saveCurrentBuiltInProviderSettings()
-        }
-    }
-    
-    /// API Key (已遷移至 Keychain)
-    @Published var llmAPIKey: String = "" {
-        didSet {
-            saveCurrentBuiltInProviderAPIKey()
-        }
-    }
-    
-    /// 模型名稱 (如 gpt-4o, claude-3-5-sonnet, llama3 等)
-    @AppStorage("llmModel") var llmModel: String = "" {
-        didSet {
-            saveCurrentBuiltInProviderSettings()
-        }
-    }
-    /// 自訂提示詞
-    @AppStorage("llmPrompt") var llmPrompt: String = ""
-
     // MARK: - 運行時狀態
     /// 當前應用程式狀態
     @Published var appState: AppState = .idle
@@ -211,227 +146,15 @@ class VoiceInputViewModel: ObservableObject {
         "ja-JP": "日本語 (Japan)"
     ]
 
-    /// 可選快捷鍵清單
-    let availableHotkeys = HotkeyOption.allCases
-
-    // MARK: - 自訂 LLM Provider 管理
-
-    /// 自訂 Provider 列表（儲存多個用戶添加的 Provider）
-    @AppStorage("customLLMProviders") private var customProvidersData: Data = Data()
-    @Published var customProviders: [CustomLLMProvider] = []
-    @AppStorage("builtInProviderSettings") private var builtInProviderSettingsData: Data = Data()
-    private var builtInProviderSettings: [String: BuiltInProviderSetting] = [:]
-
-    /// 目前選擇的自訂 Provider ID（若選擇內建 Provider 則為 nil）
-    @AppStorage("selectedCustomProviderId") var selectedCustomProviderId: String?
-
-    /// 取得目前的 LLM Provider
-    var currentLLMProvider: LLMProvider {
-        // 如果有選擇自訂 Provider，使用自訂 API 類型
-        if selectedCustomProviderId != nil {
-            return .custom
-        }
-        return LLMProvider(rawValue: llmProvider) ?? .openAI
-    }
-
-    /// 取得目前選擇的自訂 Provider（若無則返回 nil）
-    var selectedCustomProvider: CustomLLMProvider? {
-        guard let idString = selectedCustomProviderId,
-              let uuid = UUID(uuidString: idString) else {
-            return nil
-        }
-        return customProviders.first { $0.id == uuid }
-    }
-
-    /// 取得所有可用的 Provider 顯示名稱列表（包含內建和自訂）
-    var allProviderDisplayNames: [String] {
-        var names: [String] = []
-        // 內建 Provider
-        for provider in LLMProvider.allCases {
-            names.append(provider.rawValue)
-        }
-        // 自訂 Provider
-        for custom in customProviders {
-            names.append(custom.displayName)
-        }
-        return names
-    }
-
-    /// 儲存自訂 Provider 列表
-    private func saveCustomProviders() {
-        do {
-            customProvidersData = try JSONEncoder().encode(customProviders)
-        } catch {
-            logger.error("無法保存自訂 Provider 列表: \(error.localizedDescription)")
-        }
-    }
-
-    /// 載入自訂 Provider 列表
-    private func loadCustomProviders() {
-        guard !customProvidersData.isEmpty else { return }
-        do {
-            customProviders = try JSONDecoder().decode([CustomLLMProvider].self, from: customProvidersData)
-            logger.info("已載入 \(self.customProviders.count) 個自訂 Provider")
-        } catch {
-            logger.error("無法載入自訂 Provider 列表: \(error.localizedDescription)")
-        }
-    }
-
-    /// 添加新的自訂 Provider
-    func addCustomProvider(_ provider: CustomLLMProvider) {
-        customProviders.append(provider)
-        saveCustomProviders()
-        logger.info("已添加自訂 Provider: \(provider.name)")
-    }
-
-    /// 更新自訂 Provider
-    func updateCustomProvider(_ provider: CustomLLMProvider) {
-        if let index = customProviders.firstIndex(where: { $0.id == provider.id }) {
-            customProviders[index] = provider
-            saveCustomProviders()
-            logger.info("已更新自訂 Provider: \(provider.name)")
-        }
-    }
-
-    /// 刪除自訂 Provider
-    func deleteCustomProvider(_ provider: CustomLLMProvider) {
-        customProviders.removeAll { $0.id == provider.id }
-        // 如果刪除的是當前選擇的 Provider，清除選擇
-        if selectedCustomProviderId == provider.id.uuidString {
-            selectedCustomProviderId = nil
-        }
-        saveCustomProviders()
-        logger.info("已刪除自訂 Provider: \(provider.name)")
-    }
-
-    private func loadBuiltInProviderSettings() {
-        guard !builtInProviderSettingsData.isEmpty else { return }
-        do {
-            builtInProviderSettings = try JSONDecoder().decode([String: BuiltInProviderSetting].self, from: builtInProviderSettingsData)
-        } catch {
-            builtInProviderSettings = [:]
-            logger.error("無法載入內建 Provider 設定: \(error.localizedDescription)")
-        }
-    }
-
-    private func saveBuiltInProviderSettings() {
-        do {
-            builtInProviderSettingsData = try JSONEncoder().encode(builtInProviderSettings)
-        } catch {
-            logger.error("無法保存內建 Provider 設定: \(error.localizedDescription)")
-        }
-    }
-
-    func saveCurrentBuiltInProviderSettings() {
-        guard selectedCustomProviderId == nil else { return }
-        guard let provider = LLMProvider(rawValue: llmProvider), provider != .custom else { return }
-
-        builtInProviderSettings[provider.rawValue] = BuiltInProviderSetting(
-            url: llmURL,
-            model: llmModel
-        )
-        saveBuiltInProviderSettings()
-    }
-
-    func loadBuiltInProviderSettings(for provider: LLMProvider) {
-        guard provider != .custom else { return }
-
-        if let saved = builtInProviderSettings[provider.rawValue] {
-            llmURL = saved.url
-            llmModel = saved.model
-            return
-        }
-
-        if provider == .ollama && llmURL.isEmpty {
-            llmURL = "http://localhost:11434/v1/chat/completions"
-        }
-    }
-
-    private func builtInProviderAPIKeyAccount(for provider: LLMProvider) -> String {
-        "llmAPIKey.\(provider.rawValue)"
-    }
-
-    private func loadLegacyLLMAPIKeyIfNeeded() {
-        if let savedKey = KeychainHelper.shared.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), !savedKey.isEmpty {
-            llmAPIKey = savedKey
-            return
-        }
-
-        let legacyKey = UserDefaults.standard.string(forKey: "llmAPIKey") ?? ""
-        if !legacyKey.isEmpty {
-            llmAPIKey = legacyKey
-            KeychainHelper.shared.save(legacyKey, service: "com.tenyi.voiceinput", account: "llmAPIKey")
-            UserDefaults.standard.removeObject(forKey: "llmAPIKey")
-        }
-    }
-
-    func saveCurrentBuiltInProviderAPIKey() {
-        guard selectedCustomProviderId == nil else { return }
-        guard let provider = LLMProvider(rawValue: llmProvider), provider != .custom else { return }
-
-        KeychainHelper.shared.save(
-            llmAPIKey,
-            service: "com.tenyi.voiceinput",
-            account: builtInProviderAPIKeyAccount(for: provider)
-        )
-    }
-
-    func loadBuiltInProviderAPIKey(for provider: LLMProvider) {
-        guard provider != .custom else { return }
-
-        if let savedKey = KeychainHelper.shared.read(
-            service: "com.tenyi.voiceinput",
-            account: builtInProviderAPIKeyAccount(for: provider)
-        ) {
-            llmAPIKey = savedKey
-            return
-        }
-
-        // 舊版單一 Key 的相容遷移（第一次切換到該 provider 時複製一份）
-        if let legacyKey = KeychainHelper.shared.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"),
-           !legacyKey.isEmpty {
-            llmAPIKey = legacyKey
-            KeychainHelper.shared.save(
-                legacyKey,
-                service: "com.tenyi.voiceinput",
-                account: builtInProviderAPIKeyAccount(for: provider)
-            )
-            return
-        }
-
-        llmAPIKey = ""
-    }
-
-    /// 清除目前選擇的 Provider（切回內建 Provider）
-    func clearSelectedProvider() {
-        selectedCustomProviderId = nil
-    }
-
     /// 取得目前的語音辨識引擎
     var currentSpeechEngine: SpeechRecognitionEngine {
         SpeechRecognitionEngine(rawValue: selectedSpeechEngine) ?? .apple
-    }
-
-    /// LLM 修正的預設提示詞
-    static let defaultLLMPrompt = "你是一個文字校稿員。請修正以下語音辨識結果中的錯誤（包括錯字、漏字、標點符號等），但不要改變原意。只需回傳修正後的文字，reply in zh-TW，不要有其他說明。"
-
-    private struct BuiltInProviderSetting: Codable {
-        var url: String
-        var model: String
     }
 
     init() {
         selectedInputDeviceID = selectedInputDeviceStorage.isEmpty ? nil : selectedInputDeviceStorage
         audioEngine.selectedDeviceID = selectedInputDeviceID
 
-        loadCustomProviders()  // 載入自訂 Provider 列表
-        loadBuiltInProviderSettings()
-        if selectedCustomProviderId == nil {
-            loadBuiltInProviderAPIKey(for: currentLLMProvider)
-            loadBuiltInProviderSettings(for: currentLLMProvider)
-        } else {
-            loadLegacyLLMAPIKeyIfNeeded()
-        }
         loadImportedModels()
         loadTranscriptionHistory()
         setupAudioEngine()
@@ -904,7 +627,7 @@ class VoiceInputViewModel: ObservableObject {
 
         // 有有效文字的情況
         if hasValidText {
-            if llmEnabled {
+            if AppDelegate.sharedLLMSettingsViewModel.llmEnabled {
                 // 啟用 LLM 修正：設置為增強中狀態
                 appState = .enhancing
 
@@ -924,15 +647,14 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 執行 LLM 文字修正
     private func performLLMCorrection(completion: @escaping () -> Void) {
-        let config = resolveEffectiveLLMConfiguration()
+        // 透過 AppDelegate 的靜態 sharedLLMSettingsViewModel 取得設定，
+        // 避免在 ViewModel 中直接依賴 EnvironmentObject
+        let config = AppDelegate.sharedLLMSettingsViewModel.resolveEffectiveConfiguration()
 
-        LLMService.shared.correctText(
+        LLMProcessingService.shared.process(
             text: transcribedText,
-            prompt: config.prompt,
-            provider: config.provider,
-            apiKey: config.apiKey,
-            url: config.url,
-            model: config.model
+            config: config,
+            logger: logger
         ) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
@@ -1048,71 +770,6 @@ class VoiceInputViewModel: ObservableObject {
         } else if appState == .idle {
             handleStartRecordingRequest()
         }
-    }
-
-    /// 測試 LLM 設定是否正確
-    /// - Parameters:
-    ///   - text: 測試文字
-    ///   - completion: 回調，回傳修正後的文字或錯誤
-    func testLLM(
-        text: String,
-        completion: @escaping (Result<String, Error>) -> Void
-    ) {
-        let config = resolveEffectiveLLMConfiguration()
-
-        LLMService.shared.correctText(
-            text: text,
-            prompt: config.prompt,
-            provider: config.provider,
-            apiKey: config.apiKey,
-            url: config.url,
-            model: config.model,
-            completion: completion
-        )
-    }
-
-    static func resolveEffectiveLLMConfiguration(
-        prompt: String,
-        provider: LLMProvider,
-        apiKey: String,
-        url: String,
-        model: String,
-        selectedCustomProvider: CustomLLMProvider?
-    ) -> EffectiveLLMConfiguration {
-        var resolvedPrompt = prompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : prompt
-        var resolvedProvider = provider
-        var resolvedAPIKey = apiKey
-        var resolvedURL = url
-        var resolvedModel = model
-
-        if let customProvider = selectedCustomProvider {
-            resolvedProvider = .custom
-            resolvedAPIKey = customProvider.apiKey
-            resolvedURL = customProvider.apiURL
-            resolvedModel = customProvider.model
-            if !customProvider.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                resolvedPrompt = customProvider.prompt
-            }
-        }
-
-        return EffectiveLLMConfiguration(
-            prompt: resolvedPrompt,
-            provider: resolvedProvider,
-            apiKey: resolvedAPIKey,
-            url: resolvedURL,
-            model: resolvedModel
-        )
-    }
-
-    private func resolveEffectiveLLMConfiguration() -> EffectiveLLMConfiguration {
-        VoiceInputViewModel.resolveEffectiveLLMConfiguration(
-            prompt: llmPrompt,
-            provider: currentLLMProvider,
-            apiKey: llmAPIKey,
-            url: llmURL,
-            model: llmModel,
-            selectedCustomProvider: selectedCustomProvider
-        )
     }
 
     private func resolveModelURL() -> URL? {

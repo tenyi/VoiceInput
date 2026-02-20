@@ -161,18 +161,28 @@ class HotkeyManager {
     /// T2-1：keycode 驅動的 flagsChanged 狀態機，回傳可重播的狀態轉換結果。
     @discardableResult
     func processFlagsChangedEvent(keyCode: Int64, flags: CGEventFlags) -> HotkeyTransition {
-        if currentHotkey == .fn {
-            let fnIsNowDown = flags.contains(.maskSecondaryFn)
-            guard fnIsNowDown != isTargetKeyDown else { return .none }
-            isTargetKeyDown = fnIsNowDown
-            return fnIsNowDown ? .pressed : .released
-        }
-
-        // 其他修飾鍵：僅處理目標鍵 keycode 的 flagsChanged
         guard keyCode == Int64(currentHotkey.scancode) else { return .none }
 
-        // 目標鍵事件觸發時，以目前狀態翻轉判定 down/up，避免受同類另一側鍵影響
-        let isNowDown = !isTargetKeyDown
+        let isNowDown: Bool
+        let rawFlags = flags.rawValue
+
+        switch currentHotkey {
+        case .fn:
+            isNowDown = flags.contains(.maskSecondaryFn)
+        case .leftCommand:
+            // NX_DEVICELCMDKEYMASK = 0x000008
+            isNowDown = (rawFlags & 0x000008) != 0
+        case .rightCommand:
+            // NX_DEVICERCMDKEYMASK = 0x000010
+            isNowDown = (rawFlags & 0x000010) != 0
+        case .leftOption:
+            // NX_DEVICELALTKEYMASK = 0x000020
+            isNowDown = (rawFlags & 0x000020) != 0
+        case .rightOption:
+            // NX_DEVICERALTKEYMASK = 0x000040
+            isNowDown = (rawFlags & 0x000040) != 0
+        }
+
         guard isNowDown != isTargetKeyDown else { return .none }
         isTargetKeyDown = isNowDown
         return isNowDown ? .pressed : .released

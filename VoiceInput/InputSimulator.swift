@@ -83,16 +83,13 @@ class InputSimulator {
         vUp?.post(tap: .cghidEventTap)
         cmdUp?.post(tap: .cghidEventTap)
         
-        // 延遲一段時間後恢復剪貼簿內容，確保貼上操作已完成
-        // 增加延遲時間到 1 秒，確保貼上操作有足夠時間完成
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            // 檢查剪貼簿內容是否仍是我們設置的文字
-            // 如果不是，表示貼上成功或使用者又複製了新內容
+        // 延遲一小段時間後恢復剪貼簿內容，確保目標應用程式有足夠時間讀取 Cmd+V
+        // 通常 0.2 秒已足夠讓 UI 事件循環處理完貼上動作
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            // 檢查是否使用者在這 0.2 秒內又複製了新內容，若使用者複製了新內容，就不覆蓋
             let currentContent = pasteboard.string(forType: .string)
-
             if currentContent == text {
-                // 剪貼簿仍是我們的文字，表示貼上可能失敗
-                // 或者目標應用程式沒有響應，恢復原始內容
+                // 將原始剪貼簿內容無條件還原
                 pasteboard.clearContents()
                 if !oldItemSnapshots.isEmpty {
                     let restoredItems: [NSPasteboardItem] = oldItemSnapshots.map { snapshot in
@@ -105,10 +102,6 @@ class InputSimulator {
                     pasteboard.writeObjects(restoredItems)
                 }
             }
-            // 如果內容已經改變（不是 text），表示：
-            // 1. 貼上成功，目標應用程式取走了文字
-            // 2. 使用者又複製了新內容
-            // 這兩種情況都不需要恢復原始內容
         }
     }
 }

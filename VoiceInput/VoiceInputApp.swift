@@ -17,26 +17,21 @@ struct VoiceInputApp: App {
         MenuBarExtra("VoiceInput", systemImage: viewModel.isRecording ? "waveform.circle.fill" : "mic.fill") {
             ContentView()
                 .environmentObject(viewModel)
+                .environmentObject(AppDelegate.sharedLLMSettingsViewModel)
                 .task {
                     WindowManager.shared.viewModel = viewModel
                 }
         }
         .menuBarExtraStyle(.window)
 
-        // 使用 WindowGroup 取代 Settings
-        WindowGroup {
-            SettingsView()
-                .environmentObject(viewModel)
-                .frame(width: 500, height: 450)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 500, height: 450)
+        // SettingsWindow 由 AppDelegate 手動管理以確保大小與位置正確
     }
 }
 
 /// App 代理人，負責處理應用程式生命週期事件
 class AppDelegate: NSObject, NSApplicationDelegate {
     static let sharedViewModel = VoiceInputViewModel()
+    static let sharedLLMSettingsViewModel = LLMSettingsViewModel()
 
     /// 儲存設定視窗的引用
     private var settingsWindow: NSWindow?
@@ -64,6 +59,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 建立新的視窗
         let settingsView = SettingsView()
             .environmentObject(Self.sharedViewModel)
+            .environmentObject(Self.sharedLLMSettingsViewModel)
 
         let hostingController = NSHostingController(rootView: settingsView)
 

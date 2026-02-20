@@ -87,7 +87,7 @@ class AudioEngine: ObservableObject {
     private func setupDeviceNotificationObserver() {
         // 監聽設備連接
         deviceObserver = NotificationCenter.default.addObserver(
-            forName: .AVCaptureDeviceWasConnected,
+            forName: AVCaptureDevice.wasConnectedNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -96,7 +96,7 @@ class AudioEngine: ObservableObject {
 
         // 監聽設備斷開
         NotificationCenter.default.addObserver(
-            forName: .AVCaptureDeviceWasDisconnected,
+            forName: AVCaptureDevice.wasDisconnectedNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -110,7 +110,7 @@ class AudioEngine: ObservableObject {
     func refreshAvailableDevices() {
         // 使用 AVCaptureDevice 獲取可用的音訊輸入設備
         let discoverySession = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInMicrophone, .externalUnknown],
+            deviceTypes: [.microphone, .external],
             mediaType: .audio,
             position: .unspecified
         )
@@ -157,7 +157,7 @@ class AudioEngine: ObservableObject {
         }
 
         let discoverySession = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInMicrophone, .externalUnknown],
+            deviceTypes: [.microphone, .external],
             mediaType: .audio,
             position: .unspecified
         )
@@ -256,8 +256,8 @@ class AudioEngine: ObservableObject {
                 mElement: kAudioObjectPropertyElementMain
             )
 
-            var deviceUID: CFString = "" as CFString
-            var uidSize = UInt32(MemoryLayout<CFString>.size)
+            var deviceUID: Unmanaged<CFString>?
+            var uidSize = UInt32(MemoryLayout<Unmanaged<CFString>>.size)
 
             let uidStatus = AudioObjectGetPropertyData(
                 dev,
@@ -268,7 +268,7 @@ class AudioEngine: ObservableObject {
                 &deviceUID
             )
 
-            if uidStatus == noErr && (deviceUID as String) == uniqueID {
+            if uidStatus == noErr, let uidString = deviceUID?.takeUnretainedValue() as String?, uidString == uniqueID {
                 targetDeviceID = dev
                 break
             }
@@ -283,8 +283,8 @@ class AudioEngine: ObservableObject {
                     mElement: kAudioObjectPropertyElementMain
                 )
 
-                var deviceName: CFString = "" as CFString
-                var nameSize = UInt32(MemoryLayout<CFString>.size)
+                var deviceName: Unmanaged<CFString>?
+                var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>>.size)
                 let nameStatus = AudioObjectGetPropertyData(
                     dev,
                     &namePropertyAddress,
@@ -294,7 +294,7 @@ class AudioEngine: ObservableObject {
                     &deviceName
                 )
 
-                if nameStatus == noErr && (deviceName as String) == fallbackName {
+                if nameStatus == noErr, let nameStr = deviceName?.takeUnretainedValue() as String?, nameStr == fallbackName {
                     targetDeviceID = dev
                     logger.info("UID 比對失敗，已以設備名稱回退匹配: \(fallbackName)")
                     break

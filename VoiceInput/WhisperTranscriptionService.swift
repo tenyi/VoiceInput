@@ -53,7 +53,7 @@ extension WhisperError: LocalizedError {
 /// 使用 whisper.xcframework C API 的轉錄服務
 @MainActor
 final class WhisperTranscriptionService: TranscriptionServiceProtocol {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "WhisperService")
+    nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "WhisperService")
 
     var onTranscriptionResult: ((Result<String, Error>) -> Void)?
 
@@ -63,13 +63,12 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     private var securityScopedAccess = false
 
     private var accumulatedBuffer: [Float] = []
-    private let sampleRate: Float = 16000.0
-    private let partialTranscriptionMinDuration: Double = 1.0
+    nonisolated private let sampleRate: Float = 16000.0
+    nonisolated private let partialTranscriptionMinDuration: Double = 1.0
 
     private var isRunning = false
     private var isTranscribing = false
     private var pendingFinalTranscription = false
-    private let stateQueue = DispatchQueue(label: "VoiceInput.WhisperTranscriptionService.state")
 
     init(modelURL: URL, language: String = "zh-TW") {
         self.modelURL = modelURL
@@ -99,50 +98,39 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     }
 
     func start() {
-        stateQueue.sync {
-            isRunning = true
-            isTranscribing = false
-            pendingFinalTranscription = false
-            accumulatedBuffer.removeAll()
-        }
+        isRunning = true
+        isTranscribing = false
+        pendingFinalTranscription = false
+        accumulatedBuffer.removeAll()
     }
 
     func stop() {
-        let shouldTranscribeNow = stateQueue.sync { () -> Bool in
-            isRunning = false
-            if isTranscribing {
-                pendingFinalTranscription = true
-                return false
-            }
-            return !accumulatedBuffer.isEmpty
-        }
-
-        if shouldTranscribeNow {
+        isRunning = false
+        if isTranscribing {
+            pendingFinalTranscription = true
+        } else if !accumulatedBuffer.isEmpty {
             Task {
                 await transcribeFinalIfNeeded()
             }
         }
     }
 
-    func process(buffer: AVAudioPCMBuffer) {
-        let running = stateQueue.sync { isRunning }
-        guard running else { return }
-
+    nonisolated func process(buffer: AVAudioPCMBuffer) {
+        // 轉換音訊格式至 16kHz 單聲道 Float，失敗或空資料則略過
         guard let converted = convertTo16kHz(buffer: buffer), !converted.isEmpty else {
-            logger.error("音訊格式轉換失敗")
             return
         }
 
-        let shouldStartChunk = stateQueue.sync { () -> Bool in
-            guard isRunning else { return false }
-            accumulatedBuffer.append(contentsOf: converted)
-            let duration = Double(accumulatedBuffer.count) / Double(sampleRate)
-            return duration > partialTranscriptionMinDuration && !isTranscribing
-        }
-
-        if shouldStartChunk {
-            Task {
-                await transcribeChunkIfNeeded()
+        // 切換至 MainActor 後再存取 isRunning 等 actor-isolated 狀態
+        Task { @MainActor [weak self] in
+            guard let self = self, self.isRunning else { return }
+            self.accumulatedBuffer.append(contentsOf: converted)
+            let duration = Double(self.accumulatedBuffer.count) / Double(self.sampleRate)
+            let shouldStartChunk = duration > self.partialTranscriptionMinDuration && !self.isTranscribing
+            if shouldStartChunk {
+                Task {
+                    await self.transcribeChunkIfNeeded()
+                }
             }
         }
     }
@@ -155,13 +143,9 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
             return
         }
 
-        let frames = stateQueue.sync { () -> [Float]? in
-            guard !isTranscribing, !accumulatedBuffer.isEmpty else { return nil }
-            isTranscribing = true
-            return accumulatedBuffer
-        }
-
-        guard let frames else { return }
+        guard !isTranscribing, !accumulatedBuffer.isEmpty else { return }
+        isTranscribing = true
+        let frames = accumulatedBuffer
 
         do {
             let text = try await context.transcribe(samples: frames, language: selectedLanguage)
@@ -182,14 +166,10 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
             return
         }
 
-        let frames = stateQueue.sync { () -> [Float]? in
-            guard !isTranscribing, !accumulatedBuffer.isEmpty else { return nil }
-            isTranscribing = true
-            pendingFinalTranscription = false
-            return accumulatedBuffer
-        }
-
-        guard let frames else { return }
+        guard !isTranscribing, !accumulatedBuffer.isEmpty else { return }
+        isTranscribing = true
+        pendingFinalTranscription = false
+        let frames = accumulatedBuffer
 
         do {
             let text = try await context.transcribe(samples: frames, language: selectedLanguage)
@@ -205,10 +185,8 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     }
 
     private func finalizeTranscriptionCycle() {
-        let shouldRunFinal = stateQueue.sync { () -> Bool in
-            isTranscribing = false
-            return !isRunning && pendingFinalTranscription && !accumulatedBuffer.isEmpty
-        }
+        isTranscribing = false
+        let shouldRunFinal = !isRunning && pendingFinalTranscription && !accumulatedBuffer.isEmpty
 
         if shouldRunFinal {
             Task {
@@ -219,7 +197,7 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
 
     // MARK: - Audio Conversion
 
-    private func convertTo16kHz(buffer: AVAudioPCMBuffer) -> [Float]? {
+    nonisolated private func convertTo16kHz(buffer: AVAudioPCMBuffer) -> [Float]? {
         let format = buffer.format
 
         if format.sampleRate == 16000, format.channelCount == 1, let channelData = buffer.floatChannelData?[0] {

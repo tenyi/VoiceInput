@@ -31,7 +31,11 @@
       "mcp__plugin_serena_serena__replace_content",
       "mcp__plugin_serena_serena__execute_shell_command",
       "mcp__plugin_serena_serena__find_file",
-      "mcp__plugin_claude-mem_mcp-search__save_memory"
+      "mcp__plugin_claude-mem_mcp-search__save_memory",
+      "Bash(xxd:*)",
+      "Bash(xargs cat:*)",
+      "Bash(ls:*)",
+      "Bash(xargs xcrun xcresulttool get:*)"
     ]
   }
 }

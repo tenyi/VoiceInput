@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 struct SettingsView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
@@ -139,7 +140,7 @@ struct GeneralSettingsView: View {
                     .toggleStyle(.checkbox)
 
                 Picker("錄音快捷鍵", selection: $selectedHotkey) {
-                    ForEach(viewModel.availableHotkeys, id: \.self) { option in
+                    ForEach(HotkeyOption.allCases, id: \.self) { option in
                         Text(option.displayName).tag(option)
                     }
                 }
@@ -450,6 +451,7 @@ struct ModelRowView: View {
 // MARK: - LLM 修正設定視圖
 struct LLMSettingsView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
+    @EnvironmentObject var llmSettings: LLMSettingsViewModel
 
     /// 目前的 provider (從字串轉換)
     @State private var selectedProvider: LLMProvider = .openAI
@@ -482,7 +484,14 @@ struct LLMSettingsView: View {
         testError = ""
         testSucceeded = false
 
-        viewModel.testLLM(text: testInputText) { result in
+        let config = llmSettings.resolveEffectiveConfiguration()
+        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "LLMTest")
+
+        LLMProcessingService.shared.process(
+            text: testInputText,
+            config: config,
+            logger: logger
+        ) { result in
             DispatchQueue.main.async { [self] in
                 isTesting = false
                 switch result {
@@ -497,37 +506,31 @@ struct LLMSettingsView: View {
     }
 
     private func applySelectedCustomProvider(_ provider: CustomLLMProvider) {
-        viewModel.saveCurrentBuiltInProviderSettings()
-        viewModel.saveCurrentBuiltInProviderAPIKey()
         selectedCustomProvider = provider
         selectedProvider = .custom
-        viewModel.selectedCustomProviderId = provider.id.uuidString
-        viewModel.llmProvider = LLMProvider.custom.rawValue
-        viewModel.llmURL = provider.apiURL
-        viewModel.llmAPIKey = provider.apiKey
-        viewModel.llmModel = provider.model
-        promptText = viewModel.llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : viewModel.llmPrompt
+        llmSettings.selectedCustomProviderId = provider.id.uuidString
+        llmSettings.llmProvider = LLMProvider.custom.rawValue
+        llmSettings.llmURL = provider.apiURL
+        llmSettings.loadAPIKey(for: .custom, customId: provider.id.uuidString)
+        llmSettings.llmModel = provider.model
+        promptText = llmSettings.llmPrompt.isEmpty ? LLMSettingsViewModel.defaultLLMPrompt : llmSettings.llmPrompt
     }
 
     private func applyBuiltInProvider(_ provider: LLMProvider) {
-        if selectedCustomProvider == nil {
-            viewModel.saveCurrentBuiltInProviderSettings()
-            viewModel.saveCurrentBuiltInProviderAPIKey()
-        }
         selectedProvider = provider
         selectedCustomProvider = nil
-        viewModel.selectedCustomProviderId = nil
-        viewModel.llmProvider = provider.rawValue
-        viewModel.loadBuiltInProviderAPIKey(for: provider)
-        viewModel.loadBuiltInProviderSettings(for: provider)
-        promptText = viewModel.llmPrompt.isEmpty ? VoiceInputViewModel.defaultLLMPrompt : viewModel.llmPrompt
+        llmSettings.selectedCustomProviderId = nil
+        llmSettings.llmProvider = provider.rawValue
+        llmSettings.loadAPIKey(for: provider)
+        llmSettings.loadBuiltInProviderSettings(for: provider)
+        promptText = llmSettings.llmPrompt.isEmpty ? LLMSettingsViewModel.defaultLLMPrompt : llmSettings.llmPrompt
     }
 
     var body: some View {
         Form {
             // 啟用開關
             Section {
-                Toggle("啟用 LLM 自動修正", isOn: $viewModel.llmEnabled)
+                Toggle("啟用 LLM 自動修正", isOn: $llmSettings.llmEnabled)
                     .toggleStyle(.checkbox)
             } header: {
                 Text("LLM 修正")
@@ -547,10 +550,10 @@ struct LLMSettingsView: View {
                         }
                         return selectedProvider.rawValue
                     },
-                    set: { newValue in
+                    set: { (newValue: String) in
                         // 檢查是否是自訂 Provider（UUID 格式）
                         if let uuid = UUID(uuidString: newValue),
-                           let customProvider = viewModel.customProviders.first(where: { $0.id == uuid }) {
+                           let customProvider = llmSettings.customProviders.first(where: { $0.id == uuid }) {
                             applySelectedCustomProvider(customProvider)
                         } else {
                             // 內建 Provider
@@ -565,9 +568,9 @@ struct LLMSettingsView: View {
                         }
                     }
                     // 自訂 Provider
-                    if !viewModel.customProviders.isEmpty {
+                    if !llmSettings.customProviders.isEmpty {
                         Section("自訂") {
-                            ForEach(viewModel.customProviders) { provider in
+                            ForEach(llmSettings.customProviders) { provider in
                                 Text(provider.displayName).tag(provider.id.uuidString)
                             }
                         }
@@ -597,27 +600,18 @@ struct LLMSettingsView: View {
                         Text("Provider: \(custom.name)")
                             .font(.headline)
                         TextField("API URL", text: Binding(
-                            get: { custom.apiURL },
+                            get: { custom.url },
                             set: { newValue in
                                 var updated = custom
-                                updated.apiURL = newValue
-                                viewModel.updateCustomProvider(updated)
+                                updated.url = newValue
+                                llmSettings.updateCustomProvider(updated)
                                 selectedCustomProvider = updated
-                                viewModel.llmURL = newValue
+                                llmSettings.llmURL = newValue
                             }
                         ))
                         .textFieldStyle(.roundedBorder)
 
-                        SecureField("API Key", text: Binding(
-                            get: { custom.apiKey },
-                            set: { newValue in
-                                var updated = custom
-                                updated.apiKey = newValue
-                                viewModel.updateCustomProvider(updated)
-                                selectedCustomProvider = updated
-                                viewModel.llmAPIKey = newValue
-                            }
-                        ))
+                        SecureField("API Key", text: $llmSettings.llmAPIKey)
                         .textFieldStyle(.roundedBorder)
 
                         TextField("模型名稱", text: Binding(
@@ -625,9 +619,9 @@ struct LLMSettingsView: View {
                             set: { newValue in
                                 var updated = custom
                                 updated.model = newValue
-                                viewModel.updateCustomProvider(updated)
+                                llmSettings.updateCustomProvider(updated)
                                 selectedCustomProvider = updated
-                                viewModel.llmModel = newValue
+                                llmSettings.llmModel = newValue
                             }
                         ))
                         .textFieldStyle(.roundedBorder)
@@ -635,7 +629,7 @@ struct LLMSettingsView: View {
 
                     // 刪除按鈕
                     Button(role: .destructive, action: {
-                        viewModel.deleteCustomProvider(custom)
+                        llmSettings.removeCustomProvider(custom)
                         applyBuiltInProvider(.openAI)
                     }) {
                         Label("刪除此 Provider", systemImage: "trash")
@@ -644,32 +638,32 @@ struct LLMSettingsView: View {
                 } else {
                     // 內建 Provider 的設定
                     // 模型名稱 (所有 provider 都需要)
-                    TextField("模型名稱", text: $viewModel.llmModel)
+                    TextField("模型名稱", text: $llmSettings.llmModel)
                         .textFieldStyle(.roundedBorder)
 
                     // OpenAI / Anthropic 需要 API Key
                     if selectedProvider == .openAI || selectedProvider == .anthropic {
-                        SecureField("API Key", text: $viewModel.llmAPIKey)
+                        SecureField("API Key", text: $llmSettings.llmAPIKey)
                             .textFieldStyle(.roundedBorder)
                     }
 
                     // Ollama 需要 URL
                     if selectedProvider == .ollama {
-                        TextField("API URL", text: $viewModel.llmURL)
+                        TextField("API URL", text: $llmSettings.llmURL)
                             .textFieldStyle(.roundedBorder)
                             .onAppear {
-                                if viewModel.llmURL.isEmpty {
-                                    viewModel.llmURL = "http://localhost:11434/v1/chat/completions"
+                                if llmSettings.llmURL.isEmpty {
+                                    llmSettings.llmURL = "http://localhost:11434/v1/chat/completions"
                                 }
                             }
                     }
 
                     // 自訂 API 需要 URL 和 API Key
                     if selectedProvider == .custom {
-                        TextField("API URL", text: $viewModel.llmURL)
+                        TextField("API URL", text: $llmSettings.llmURL)
                             .textFieldStyle(.roundedBorder)
 
-                        SecureField("API Key (可選)", text: $viewModel.llmAPIKey)
+                        SecureField("API Key (可選)", text: $llmSettings.llmAPIKey)
                             .textFieldStyle(.roundedBorder)
                     }
                 }
@@ -684,20 +678,20 @@ struct LLMSettingsView: View {
                     .frame(height: 80)
                     .font(.system(.body, design: .monospaced))
                     .onChange(of: promptText) { _, newValue in
-                        let valueToStore = newValue == VoiceInputViewModel.defaultLLMPrompt ? "" : newValue
-                        viewModel.llmPrompt = valueToStore
+                        let valueToStore = newValue == LLMSettingsViewModel.defaultLLMPrompt ? "" : newValue
+                        llmSettings.llmPrompt = valueToStore
                     }
 
                 HStack {
                     Button("重置為預設") {
-                        promptText = VoiceInputViewModel.defaultLLMPrompt
-                        viewModel.llmPrompt = ""
+                        promptText = LLMSettingsViewModel.defaultLLMPrompt
+                        llmSettings.llmPrompt = ""
                     }
                     .buttonStyle(.link)
 
                     Spacer()
 
-                    if promptText != VoiceInputViewModel.defaultLLMPrompt && !promptText.isEmpty {
+                    if promptText != LLMSettingsViewModel.defaultLLMPrompt && !promptText.isEmpty {
                         Text("已自訂")
                             .font(.caption)
                             .foregroundColor(.green)
@@ -788,22 +782,24 @@ struct LLMSettingsView: View {
         .padding()
         .onAppear {
             // 載入已儲存的 provider
-            if let customProvider = viewModel.selectedCustomProvider {
+            if let customProvider = llmSettings.selectedCustomProvider {
                 applySelectedCustomProvider(customProvider)
             } else {
-                applyBuiltInProvider(viewModel.currentLLMProvider)
+                applyBuiltInProvider(llmSettings.currentLLMProvider)
             }
         }
         .sheet(isPresented: $showingAddCustomProvider) {
-            AddCustomProviderSheet(viewModel: viewModel) { newProvider in
-                viewModel.addCustomProvider(newProvider)
+            AddCustomProviderSheet(llmSettings: llmSettings) { newProvider, newAPIKey in
+                llmSettings.addCustomProvider(newProvider)
+                llmSettings.selectedCustomProviderId = newProvider.id.uuidString
+                llmSettings.llmAPIKey = newAPIKey
                 // 自動選中新添加的 Provider
                 applySelectedCustomProvider(newProvider)
             }
         }
         .sheet(isPresented: $showingProviderManager) {
             ManageCustomProvidersSheet(
-                viewModel: viewModel,
+                llmSettings: _llmSettings,
                 onSelect: { provider in
                     applySelectedCustomProvider(provider)
                 },
@@ -819,8 +815,10 @@ struct LLMSettingsView: View {
             )
         }
         .sheet(isPresented: $showingAddFromManager) {
-            AddCustomProviderSheet(viewModel: viewModel) { newProvider in
-                viewModel.addCustomProvider(newProvider)
+            AddCustomProviderSheet(llmSettings: llmSettings) { newProvider, newAPIKey in
+                llmSettings.addCustomProvider(newProvider)
+                llmSettings.selectedCustomProviderId = newProvider.id.uuidString
+                llmSettings.llmAPIKey = newAPIKey
                 // 自動選中新添加的 Provider
                 applySelectedCustomProvider(newProvider)
             }
@@ -889,8 +887,8 @@ struct HistorySettingsView: View {
 struct AddCustomProviderSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    let viewModel: VoiceInputViewModel
-    let onAdd: (CustomLLMProvider) -> Void
+    let llmSettings: LLMSettingsViewModel
+    let onAdd: (CustomLLMProvider, String) -> Void
 
     @State private var name: String = ""
     @State private var apiURL: String = ""
@@ -979,12 +977,11 @@ struct AddCustomProviderSheet: View {
     private func addProvider() {
         let provider = CustomLLMProvider(
             name: name,
-            apiURL: apiURL,
-            apiKey: apiKey,
+            url: apiURL,
             model: model,
             prompt: prompt
         )
-        onAdd(provider)
+        onAdd(provider, apiKey)
         dismiss()
     }
 }
@@ -993,7 +990,7 @@ struct AddCustomProviderSheet: View {
 /// 管理已新增的自訂 Provider（檢視、刪除）
 struct ManageCustomProvidersSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var viewModel: VoiceInputViewModel
+    @EnvironmentObject var llmSettings: LLMSettingsViewModel
 
     let onSelect: (CustomLLMProvider) -> Void
     let onDelete: (CustomLLMProvider) -> Void
@@ -1004,13 +1001,13 @@ struct ManageCustomProvidersSheet: View {
     var body: some View {
         NavigationView {
             List {
-                if viewModel.customProviders.isEmpty {
+                if llmSettings.customProviders.isEmpty {
                     Text("尚未新增任何自訂 Provider")
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding()
                 } else {
-                    ForEach(viewModel.customProviders) { provider in
+                    ForEach(llmSettings.customProviders) { provider in
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(provider.displayName)
@@ -1066,7 +1063,7 @@ struct ManageCustomProvidersSheet: View {
                 Button("刪除", role: .destructive) {
                     if let provider = providerToDelete {
                         onDelete(provider)
-                        viewModel.deleteCustomProvider(provider)
+                        llmSettings.removeCustomProvider(provider)
                     }
                     providerToDelete = nil
                 }
@@ -1084,3 +1081,4 @@ struct ManageCustomProvidersSheet: View {
     SettingsView()
         .environmentObject(VoiceInputViewModel())
 }
+
