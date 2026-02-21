@@ -10,6 +10,8 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
+    @EnvironmentObject var historyManager: HistoryManager
+    @EnvironmentObject var modelManager: ModelManager
     @State private var selectedTab: MainTab = .main
 
     private enum MainTab: String, CaseIterable, Identifiable {
@@ -119,7 +121,7 @@ struct ContentView: View {
             Label("Whisper 模型", systemImage: "cpu")
                 .font(.headline)
             
-            Text(viewModel.whisperModelPath.isEmpty ? "未選擇模型" : URL(fileURLWithPath: viewModel.whisperModelPath).lastPathComponent)
+            Text(modelManager.whisperModelPath.isEmpty ? "未選擇模型" : URL(fileURLWithPath: modelManager.whisperModelPath).lastPathComponent)
                 .font(.system(.body, design: .monospaced))
                 .foregroundColor(.secondary)
             
@@ -200,7 +202,7 @@ struct ContentView: View {
 
             Divider()
 
-            if viewModel.transcriptionHistory.isEmpty {
+            if historyManager.transcriptionHistory.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "tray")
                         .font(.title2)
@@ -213,7 +215,7 @@ struct ContentView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 10) {
-                        ForEach(viewModel.transcriptionHistory) { item in
+                        ForEach(historyManager.transcriptionHistory) { item in
                             historyRow(item)
                         }
                     }
@@ -233,14 +235,14 @@ struct ContentView: View {
                 Spacer()
 
                 Button {
-                    viewModel.copyHistoryText(item.text)
+                    historyManager.copyHistoryText(item.text)
                 } label: {
                     Label("複製", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
 
                 Button {
-                    viewModel.deleteHistoryItem(item)
+                    historyManager.deleteHistoryItem(item)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.secondary)
@@ -273,4 +275,6 @@ struct ContentView: View {
     ContentView()
         .environmentObject(VoiceInputViewModel())
         .environmentObject(LLMSettingsViewModel())
+        .environmentObject(ModelManager())
+        .environmentObject(HistoryManager())
 }

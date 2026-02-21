@@ -33,7 +33,7 @@ enum HotkeyOption: String, CaseIterable {
 }
 
 /// 負責管理全域快捷鍵的類別
-class HotkeyManager {
+class HotkeyManager: HotkeyManagerProtocol {
     enum HotkeyTransition: Equatable {
         case none
         case pressed

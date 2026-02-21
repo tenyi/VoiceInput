@@ -7,7 +7,7 @@ import CoreAudio
 
 /// 負責處理麥克風輸入與權限管理的音訊引擎
 /// This class handles microphone input and permission management.
-class AudioEngine: ObservableObject {
+class AudioEngine: ObservableObject, AudioEngineProtocol {
     /// 單例實例
     static let shared = AudioEngine()
     

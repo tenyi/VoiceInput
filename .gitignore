@@ -109,7 +109,6 @@ models/  # 取消註解以忽略整個 models 目錄
 # ===========================================
 # 個人筆記與文檔 (可選)
 # ===========================================
-CodeRevice-*.md
 #CodeReview-*.md
 TODO-CodeReview.md
 AGENTS.md~
@@ -133,3 +132,7 @@ TODO*.md
 .env
 .env.*
 Credentials.plist
+
+# 測試檔
+TestResults.xcresult/
+

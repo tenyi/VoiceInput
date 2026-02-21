@@ -220,6 +220,7 @@ struct TranscriptionSettingsView: View {
 
 struct ModelSettingsView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
+    @EnvironmentObject var modelManager: ModelManager
 
     var body: some View {
         Form {
@@ -249,29 +250,29 @@ struct ModelSettingsView: View {
 
             if viewModel.currentSpeechEngine == .whisper {
                 // 匯入進度顯示
-                if viewModel.isImportingModel {
+                if modelManager.isImportingModel {
                     Section {
                         VStack(spacing: 12) {
                             // 進度條
-                            ProgressView(value: viewModel.modelImportProgress) {
+                            ProgressView(value: modelManager.modelImportProgress) {
                                 Text("正在匯入模型...")
                                     .font(.headline)
                             }
                             .progressViewStyle(.linear)
 
                             // 進度百分比
-                            Text("\(Int(viewModel.modelImportProgress * 100))%")
+                            Text("\(Int(modelManager.modelImportProgress * 100))%")
                                 .font(.title2)
                                 .fontWeight(.medium)
 
                             // 速度和剩餘時間
                             HStack(spacing: 16) {
-                                if !viewModel.modelImportSpeed.isEmpty {
-                                    Label(viewModel.modelImportSpeed, systemImage: "speedometer")
+                                if !modelManager.modelImportSpeed.isEmpty {
+                                    Label(modelManager.modelImportSpeed, systemImage: "speedometer")
                                 }
 
-                                if !viewModel.modelImportRemainingTime.isEmpty {
-                                    Label(viewModel.modelImportRemainingTime, systemImage: "clock")
+                                if !modelManager.modelImportRemainingTime.isEmpty {
+                                    Label(modelManager.modelImportRemainingTime, systemImage: "clock")
                                 }
                             }
                             .font(.caption)
@@ -284,7 +285,7 @@ struct ModelSettingsView: View {
                 }
 
                 // 錯誤訊息顯示
-                if let error = viewModel.modelImportError {
+                if let error = modelManager.modelImportError {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .foregroundColor(.red)
@@ -296,7 +297,7 @@ struct ModelSettingsView: View {
 
                 // 已導入的模型列表
                 Section {
-                    if viewModel.importedModels.isEmpty {
+                    if modelManager.importedModels.isEmpty {
                         VStack(spacing: 8) {
                             Image(systemName: "cube.box")
                                 .font(.system(size: 32))
@@ -310,34 +311,34 @@ struct ModelSettingsView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
                     } else {
-                        ForEach(viewModel.importedModels, id: \.fileName) { model in
+                        ForEach(modelManager.importedModels, id: \.fileName) { model in
                             ModelRowView(
                                 model: model,
-                                isSelected: viewModel.whisperModelPath.contains(model.fileName),
-                                modelsDirectory: viewModel.publicModelsDirectory,
-                                onSelect: { viewModel.selectImportedModel(model) },
-                                onDelete: { viewModel.deleteModel(model) },
-                                onShowInFinder: { viewModel.showModelInFinder(model) }
+                                isSelected: modelManager.whisperModelPath.contains(model.fileName),
+                                modelsDirectory: modelManager.publicModelsDirectory,
+                                onSelect: { modelManager.selectModel(model) },
+                                onDelete: { modelManager.deleteModel(model) },
+                                onShowInFinder: { modelManager.showModelInFinder(model) }
                             )
                         }
                     }
 
                     // 導入按鈕
                     Button(action: {
-                        viewModel.importModel()
+                        modelManager.importModel()
                     }) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
                             Text("匯入模型...")
                         }
                     }
-                    .disabled(viewModel.isImportingModel)
+                    .disabled(modelManager.isImportingModel)
                 } header: {
                     HStack {
                         Text("已導入的模型")
                         Spacer()
-                        if !viewModel.importedModels.isEmpty {
-                            Text("\(viewModel.importedModels.count) 個")
+                        if !modelManager.importedModels.isEmpty {
+                            Text("\(modelManager.importedModels.count) 個")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -475,7 +476,7 @@ struct LLMSettingsView: View {
     @State private var testSucceeded: Bool = false
 
     /// 測試文字
-    private let testInputText = "垂直致中，致中對齊"
+    private let testInputText = "垂直致中、致中對齊 鉛直至中水平緻中"
 
     /// 執行 LLM 測試
     private func performLLMTest() {
@@ -829,15 +830,16 @@ struct LLMSettingsView: View {
 // MARK: - 歷史記錄設定視圖
 struct HistorySettingsView: View {
     @EnvironmentObject var viewModel: VoiceInputViewModel
+    @EnvironmentObject var historyManager: HistoryManager
 
     var body: some View {
         Form {
             Section {
-                if viewModel.transcriptionHistory.isEmpty {
+                if historyManager.transcriptionHistory.isEmpty {
                     Text("目前沒有歷史輸入")
                         .foregroundColor(.secondary)
                 } else {
-                    ForEach(viewModel.transcriptionHistory) { item in
+                    ForEach(historyManager.transcriptionHistory) { item in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text(item.createdAt.formatted(date: .omitted, time: .standard))
@@ -847,14 +849,14 @@ struct HistorySettingsView: View {
                                 Spacer()
 
                                 Button {
-                                    viewModel.copyHistoryText(item.text)
+                                    historyManager.copyHistoryText(item.text)
                                 } label: {
                                     Label("複製", systemImage: "doc.on.doc")
                                 }
                                 .buttonStyle(.borderless)
 
                                 Button {
-                                    viewModel.deleteHistoryItem(item)
+                                    historyManager.deleteHistoryItem(item)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .foregroundColor(.secondary)
@@ -1080,5 +1082,7 @@ struct ManageCustomProvidersSheet: View {
 #Preview {
     SettingsView()
         .environmentObject(VoiceInputViewModel())
+        .environmentObject(ModelManager())
+        .environmentObject(HistoryManager())
 }
 

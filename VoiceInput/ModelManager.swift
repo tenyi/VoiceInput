@@ -6,13 +6,19 @@ import UniformTypeIdentifiers
 import os
 
 /// 負責管理 Whisper 模型導入、刪除、選擇的管理器
+@MainActor
 class ModelManager: ObservableObject {
     /// 日誌記錄器
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "ModelManager")
+    nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "ModelManager")
 
     /// 已導入的模型列表資料 (JSON 編碼格式)
     @AppStorage("importedModels") private var importedModelsData: Data = Data()
-
+    
+    /// 檔案系統提供者，用於依賴注入
+    private let fileSystem: FileSystemProtocol
+    
+    /// UserDefaults，用於依賴注入
+    private let userDefaults: UserDefaults
     /// 已導入的模型列表
     @Published var importedModels: [ImportedModel] = []
 
@@ -38,11 +44,16 @@ class ModelManager: ObservableObject {
     let publicModelsDirectory: URL
 
     /// 當前選擇的模型路徑
-    @Published var selectedModelPath: String = ""
+    @AppStorage("whisperModelPath") var whisperModelPath: String = ""
 
-    init() {
+    init(userDefaults: UserDefaults, fileSystem: FileSystemProtocol) {
+        self.userDefaults = userDefaults
+        self.fileSystem = fileSystem
+        self._importedModelsData = AppStorage(wrappedValue: Data(), "importedModels", store: userDefaults)
+        self._whisperModelPath = AppStorage(wrappedValue: "", "whisperModelPath", store: userDefaults)
+        
         // 初始化目錄
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = fileSystem.applicationSupportDirectory ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let bundleID = Bundle.main.bundleIdentifier ?? "VoiceInput"
         modelsDirectory = appSupport.appendingPathComponent(bundleID).appendingPathComponent("Models")
 
@@ -51,6 +62,10 @@ class ModelManager: ObservableObject {
 
         // 載入已導入的模型列表
         loadModels()
+    }
+
+    convenience init() {
+        self.init(userDefaults: .standard, fileSystem: DefaultFileSystem.shared)
     }
 
     // MARK: - 模型列表管理
@@ -122,10 +137,10 @@ class ModelManager: ObservableObject {
 
             do {
                 // 確保目錄存在
-                try FileManager.default.createDirectory(at: self.modelsDirectory, withIntermediateDirectories: true, attributes: nil)
+                try self.fileSystem.createDirectory(at: self.modelsDirectory, withIntermediateDirectories: true, attributes: nil)
 
                 // 取得檔案大小
-                let fileSize = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                let fileSize = (try? self.fileSystem.getFileSize(at: sourceURL)) ?? 0
 
                 // 開始複製
                 DispatchQueue.main.async {
@@ -133,11 +148,11 @@ class ModelManager: ObservableObject {
                     self.modelImportProgress = 0.5
                 }
 
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    try FileManager.default.removeItem(at: destinationURL)
+                if self.fileSystem.fileExists(atPath: destinationURL.path) {
+                    try self.fileSystem.removeItem(at: destinationURL)
                 }
 
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                try self.fileSystem.copyItem(at: sourceURL, to: destinationURL)
 
                 // 建立新模型物件
                 let newModel = ImportedModel(name: modelName, fileName: destinationFileName, fileSize: Int64(fileSize))
@@ -171,8 +186,8 @@ class ModelManager: ObservableObject {
 
         do {
             // 刪除檔案
-            if FileManager.default.fileExists(atPath: modelURL.path) {
-                try FileManager.default.removeItem(at: modelURL)
+            if fileSystem.fileExists(atPath: modelURL.path) {
+                try fileSystem.removeItem(at: modelURL)
             }
 
             // 從列表移除
@@ -180,8 +195,8 @@ class ModelManager: ObservableObject {
             saveModels()
 
             // 如果當前選擇的模型被刪除，清除選擇
-            if selectedModelPath == modelURL.path {
-                selectedModelPath = ""
+            if whisperModelPath == modelURL.path {
+                whisperModelPath = ""
             }
 
             logger.info("模型已刪除: \(model.fileName)")
@@ -195,14 +210,14 @@ class ModelManager: ObservableObject {
     /// 選擇已導入的模型
     func selectModel(_ model: ImportedModel) {
         let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
-        selectedModelPath = modelURL.path
+        whisperModelPath = modelURL.path
         logger.info("已選擇模型: \(model.fileName)")
     }
 
     /// 取得目前選擇模型的 URL
     func getSelectedModelURL() -> URL? {
-        if !selectedModelPath.isEmpty {
-            return URL(fileURLWithPath: selectedModelPath)
+        if !whisperModelPath.isEmpty {
+            return URL(fileURLWithPath: whisperModelPath)
         }
         return nil
     }
@@ -210,7 +225,7 @@ class ModelManager: ObservableObject {
     /// 檢查模型檔案是否存在
     func modelExists(_ model: ImportedModel) -> Bool {
         let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
-        return FileManager.default.fileExists(atPath: modelURL.path)
+        return fileSystem.fileExists(atPath: modelURL.path)
     }
 
     /// 在 Finder 中顯示模型

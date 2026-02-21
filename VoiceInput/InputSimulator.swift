@@ -4,7 +4,7 @@ import Cocoa
 import Carbon.HIToolbox
 
 /// 負責模擬鍵盤輸入與處理輔助功能權限
-class InputSimulator {
+class InputSimulator: InputSimulatorProtocol {
     /// 單例 (Singleton) 實例
     static let shared = InputSimulator()
 

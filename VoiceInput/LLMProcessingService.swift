@@ -14,15 +14,20 @@ class LLMProcessingService {
         logger: Logger,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        LLMService.shared.correctText(
-            text: text,
-            prompt: config.prompt,
-            provider: config.provider,
-            apiKey: config.apiKey,
-            url: config.url,
-            model: config.model
-        ) { result in
-            completion(result)
+        Task {
+            do {
+                let correctedText = try await LLMService.shared.correctText(
+                    text: text,
+                    prompt: config.prompt,
+                    provider: config.provider,
+                    apiKey: config.apiKey,
+                    url: config.url,
+                    model: config.model
+                )
+                completion(.success(correctedText))
+            } catch {
+                completion(.failure(error))
+            }
         }
     }
 }

@@ -15,69 +15,33 @@ enum AppState {
     case enhancing  // LLM 增強中
 }
 
-/// 單筆轉錄歷史紀錄
-struct TranscriptionHistoryItem: Identifiable, Codable, Equatable {
-    let id: UUID
-    let text: String
-    let createdAt: Date
-
-    init(id: UUID = UUID(), text: String, createdAt: Date) {
-        self.id = id
-        self.text = text
-        self.createdAt = createdAt
-    }
-}
-
 /// 負責管理 VoiceInput 應用程式狀態的 ViewModel
+@MainActor
 class VoiceInputViewModel: ObservableObject {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "VoiceInputViewModel")
+    nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "VoiceInputViewModel")
 
-    // MARK: - 持久化設定 (AppStorage)
-    @AppStorage("selectedLanguage") var selectedLanguage: String = "zh-TW"
-    @AppStorage("whisperModelPath") var whisperModelPath: String = ""
-
-
-    @AppStorage("autoInsertText") var autoInsertText: Bool = true
-    @AppStorage("selectedHotkey") var selectedHotkey: String = HotkeyOption.rightCommand.rawValue
+    // MARK: - 持久化設定 (Refactored from AppStorage for DI support)
+    @Published var selectedLanguage: String {
+        didSet { userDefaults.set(selectedLanguage, forKey: "selectedLanguage") }
+    }
+    @Published var autoInsertText: Bool {
+        didSet { userDefaults.set(autoInsertText, forKey: "autoInsertText") }
+    }
+    @Published var selectedHotkey: String {
+        didSet { userDefaults.set(selectedHotkey, forKey: "selectedHotkey") }
+    }
     /// T4-1：錄音觸發模式（按住說話 / 單鍵切換）
-    @AppStorage("recordingTriggerMode") var recordingTriggerMode: String = RecordingTriggerMode.pressAndHold.rawValue
-    @AppStorage("selectedSpeechEngine") var selectedSpeechEngine: String = SpeechRecognitionEngine.apple.rawValue
-    @AppStorage("selectedInputDeviceID") private var selectedInputDeviceStorage: String = ""
-
-    // MARK: - 已導入的模型列表
-    @AppStorage("importedModels") private var importedModelsData: Data = Data()
-    @Published var importedModels: [ImportedModel] = []
-
-    // MARK: - 模型匯入狀態
-    /// 是否正在匯入模型
-    @Published var isImportingModel = false
-    /// 匯入進度 (0.0 ~ 1.0)
-    @Published var modelImportProgress: Double = 0.0
-    /// 匯入錯誤訊息
-    @Published var modelImportError: String?
-    /// 匯入速度（格式化字串）
-    @Published var modelImportSpeed: String = ""
-    /// 預估剩餘時間
-    @Published var modelImportRemainingTime: String = ""
-
-    /// 公開的模型目錄 URL（供 UI 使用）
-    var publicModelsDirectory: URL {
-        return modelsDirectory
+    @Published var recordingTriggerMode: String {
+        didSet { userDefaults.set(recordingTriggerMode, forKey: "recordingTriggerMode") }
     }
-
-    /// 取得模型儲存目錄
-    private var modelsDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("VoiceInput/Models", isDirectory: true)
+    @Published var selectedSpeechEngine: String {
+        didSet { userDefaults.set(selectedSpeechEngine, forKey: "selectedSpeechEngine") }
     }
-
-    /// 轉錄歷史檔案路徑
-    private var transcriptionHistoryFileURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport
-            .appendingPathComponent("VoiceInput", isDirectory: true)
-            .appendingPathComponent("transcription_history.json", isDirectory: false)
+    @Published private var selectedInputDeviceStorage: String {
+        didSet { userDefaults.set(selectedInputDeviceStorage, forKey: "selectedInputDeviceID") }
     }
+    
+    private let userDefaults: UserDefaults
 
     // MARK: - Speech Engine 選項
 
@@ -92,17 +56,17 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 已轉錄的文字內容
     @Published var transcribedText = "等待輸入..."
-    /// 最近轉錄歷史（最多 10 筆）
-    @Published var transcriptionHistory: [TranscriptionHistoryItem] = []
+    
     /// LLM 修正錯誤訊息（用於在懸浮視窗顯示）
     @Published var lastLLMError: String?
     /// 權限狀態
     @Published var permissionGranted = false
     /// 錄音開始時間（用於防抖，避免極短暫的錄音）
+    /// 錄音開始時間（用於防抖，避免極短暫的錄音）
     private var recordingStartTime: Date?
 
-    /// 音訊引擎 (使用單例)
-    private var audioEngine = AudioEngine.shared
+    /// 音訊引擎 (依賴注入)
+    private var audioEngine: AudioEngineProtocol
 
     /// 可用的音訊輸入設備列表
     var availableInputDevices: [AudioInputDevice] {
@@ -120,20 +84,24 @@ class VoiceInputViewModel: ObservableObject {
     /// 刷新音訊設備列表
     func refreshAudioDevices() {
         audioEngine.refreshAvailableDevices()
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.reconcileSelectedInputDevice()
         }
     }
-    /// 轉錄服務 (目前支援 SFSpeech / Whisper)
-    private var transcriptionService: TranscriptionServiceProtocol = SFSpeechTranscriptionService()
-    /// T3-1：儲存目前轉錄服務的配置（引擎/模型路徑/語言），用於配置比對
-    private var currentTranscriptionConfig: TranscriptionConfig?
     /// T4-2：快捷鍵互動策略層，負責將按鍵事件轉換為開始/停止語意
     private var hotkeyController: HotkeyInteractionController = HotkeyInteractionController()
+    
+    /// 快捷鍵管理器 (依賴注入)
+    private var hotkeyManager: HotkeyManagerProtocol
+
     /// 轉錄管理器 - 負責轉錄狀態管理
     @ObservedObject var transcriptionManager = TranscriptionManager()
-    /// 輸入模擬器 (用於插入文字)
-    private var inputSimulator = InputSimulator.shared
+    
+    /// Combine 訂閱
+    /// Combine 訂閱
+    private var cancellables = Set<AnyCancellable>()
+    /// 輸入模擬器 (依賴注入)
+    private var inputSimulator: InputSimulatorProtocol
 
     /// 權限管理員
     @ObservedObject var permissionManager = PermissionManager.shared
@@ -151,208 +119,62 @@ class VoiceInputViewModel: ObservableObject {
         SpeechRecognitionEngine(rawValue: selectedSpeechEngine) ?? .apple
     }
 
-    init() {
-        selectedInputDeviceID = selectedInputDeviceStorage.isEmpty ? nil : selectedInputDeviceStorage
-        audioEngine.selectedDeviceID = selectedInputDeviceID
+    init(
+        hotkeyManager: HotkeyManagerProtocol,
+        audioEngine: AudioEngineProtocol,
+        inputSimulator: InputSimulatorProtocol,
+        userDefaults: UserDefaults = .standard
+    ) {
+        self.hotkeyManager = hotkeyManager
+        self.audioEngine = audioEngine
+        self.inputSimulator = inputSimulator
+        self.userDefaults = userDefaults
+        
+        // Initialize properties from UserDefaults
+        self.selectedLanguage = userDefaults.string(forKey: "selectedLanguage") ?? "zh-TW"
+        self.autoInsertText = userDefaults.object(forKey: "autoInsertText") != nil ? userDefaults.bool(forKey: "autoInsertText") : true
+        self.selectedHotkey = userDefaults.string(forKey: "selectedHotkey") ?? HotkeyOption.rightCommand.rawValue
+        self.recordingTriggerMode = userDefaults.string(forKey: "recordingTriggerMode") ?? RecordingTriggerMode.pressAndHold.rawValue
+        self.selectedSpeechEngine = userDefaults.string(forKey: "selectedSpeechEngine") ?? SpeechRecognitionEngine.apple.rawValue
+        self.selectedInputDeviceStorage = userDefaults.string(forKey: "selectedInputDeviceID") ?? ""
+        
+        // Initialize runtime properties
+        self.selectedInputDeviceID = selectedInputDeviceStorage.isEmpty ? nil : selectedInputDeviceStorage
+        self.audioEngine.selectedDeviceID = self.selectedInputDeviceID
 
-        loadImportedModels()
-        loadTranscriptionHistory()
         setupAudioEngine()
         setupHotkeys()
         refreshAudioDevices()
+        setupTranscriptionManager()
     }
 
-    // MARK: - 模型導入功能
-
-    /// 載入已導入的模型列表
-    private func loadImportedModels() {
-        guard !importedModelsData.isEmpty else { return }
-        do {
-            importedModels = try JSONDecoder().decode([ImportedModel].self, from: importedModelsData)
-            logger.info("已載入 \(self.importedModels.count) 個已導入的模型")
-        } catch {
-            logger.error("無法載入已導入的模型列表: \(error.localizedDescription)")
-        }
+    convenience init() {
+        self.init(
+            hotkeyManager: HotkeyManager.shared,
+            audioEngine: AudioEngine.shared,
+            inputSimulator: InputSimulator.shared
+        )
     }
-
-    /// 保存已導入的模型列表
-    private func saveImportedModels() {
-        do {
-            importedModelsData = try JSONEncoder().encode(importedModels)
-        } catch {
-            logger.error("無法保存模型列表: \(error.localizedDescription)")
-        }
-    }
-
-    /// 載入轉錄歷史（最多保留 10 筆）
-    private func loadTranscriptionHistory() {
-        let fileURL = transcriptionHistoryFileURL
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            transcriptionHistory = []
-            return
-        }
-
-        do {
-            let data = try Data(contentsOf: fileURL)
-            let decoded = try JSONDecoder().decode([TranscriptionHistoryItem].self, from: data)
-            transcriptionHistory = Array(decoded.sorted(by: { $0.createdAt > $1.createdAt }).prefix(10))
-        } catch {
-            logger.error("無法載入轉錄歷史: \(error.localizedDescription)")
-            transcriptionHistory = []
-        }
-    }
-
-    /// 保存轉錄歷史（最多保留 10 筆）
-    private func saveTranscriptionHistory() {
-        do {
-            let historyToSave = Array(transcriptionHistory.prefix(10))
-            let data = try JSONEncoder().encode(historyToSave)
-            let fileURL = transcriptionHistoryFileURL
-            let directory = fileURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            logger.error("無法保存轉錄歷史: \(error.localizedDescription)")
-        }
-    }
-
-    /// 導入模型（從檔案選擇器選擇）
-    func importModel() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.init(filenameExtension: "bin")].compactMap { $0 }
-        panel.message = "選擇 Whisper 模型檔案 (.bin)"
-
-        panel.begin { [weak self] result in
-            guard let self = self, result == .OK, let sourceURL = panel.url else { return }
-
-            DispatchQueue.main.async {
-                self.importModelFromURL(sourceURL)
+    
+    private func setupTranscriptionManager() {
+        // 設定文字處理器：簡轉繁與字典替換
+        transcriptionManager.textProcessor = { [weak self] text in
+            var processedText = text
+            if self?.selectedLanguage == "zh-TW" {
+                processedText = text.toTraditionalChinese()
             }
+            return DictionaryManager.shared.replaceText(processedText)
         }
-    }
-
-    /// 從指定 URL 導入模型
-    func importModelFromURL(_ sourceURL: URL) {
-        // 進入匯入狀態
-        self.isImportingModel = true
-        self.modelImportError = nil
-        self.modelImportProgress = 0.0
-        self.modelImportSpeed = "準備中..."
-        self.modelImportRemainingTime = "計算中..."
-
-        // 取得模型名稱（不含副檔名）
-        let modelName = sourceURL.deletingPathExtension().lastPathComponent
-        let destinationFileName = "\(modelName).bin"
-        let destinationURL = modelsDirectory.appendingPathComponent(destinationFileName)
-
-        // 檢查是否已存在
-        if importedModels.contains(where: { $0.fileName == destinationFileName }) {
-            self.modelImportError = "模型已存在: \(destinationFileName)"
-            self.isImportingModel = false
-            return
-        }
-
-        // 在背景執行複製操作
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            
-            do {
-                // 確保目錄存在
-                try FileManager.default.createDirectory(at: self.modelsDirectory, withIntermediateDirectories: true, attributes: nil)
-
-                // 使用 FileCoordinator 進行安全複製 (也可以簡單使用 FileManager callback，但 swift 標準庫沒有進度回調的 copy)
-                // 這裡我們模擬進度或直接複製。因為 FileManager.copyItem 是同步且無進度的。
-                // 為了更好的 UX，我們先檢查檔案大小
-                let fileSize = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                
-                // 開始複製
-                DispatchQueue.main.async {
-                     self.modelImportSpeed = "正在複製..."
-                     self.modelImportProgress = 0.5 // 假進度，因為 copyItem 無法追蹤
-                }
-                
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    try FileManager.default.removeItem(at: destinationURL)
-                }
-                
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-
-                // 建立新模型物件
-                let newModel = ImportedModel(name: modelName, fileName: destinationFileName, fileSize: Int64(fileSize))
-                
-                DispatchQueue.main.async {
-                    // 新增到列表
-                    self.importedModels.append(newModel)
-                    self.saveImportedModels()
-                    
-                    // 自動選擇新導入的模型
-                    self.selectImportedModel(newModel)
-                    
-                    self.logger.info("模型導入成功: \(destinationFileName)，儲存於: \(destinationURL.path)")
-                    
-                    // 完成
-                    self.modelImportProgress = 1.0
-                    self.modelImportSpeed = "完成"
-                    self.modelImportRemainingTime = ""
-                    
-                    // 延遲一下讓用戶看到 100%
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.isImportingModel = false
-                        self.modelImportProgress = 0.0
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self.logger.error("模型導入失敗: \(error.localizedDescription)")
-                    self.modelImportError = "導入失敗: \(error.localizedDescription)"
-                    self.isImportingModel = false
-                }
+        
+        // 將 transcriptionManager 的 text 同步到 ViewModel 供 UI 綁定
+        transcriptionManager.$transcribedText
+            .receive(on: RunLoop.main)
+            .sink { [weak self] newText in
+                self?.transcribedText = newText
             }
-        }
+            .store(in: &cancellables)
     }
 
-    /// 刪除模型
-    func deleteModel(_ model: ImportedModel) {
-        let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
-
-        do {
-            // 刪除檔案
-            if FileManager.default.fileExists(atPath: modelURL.path) {
-                try FileManager.default.removeItem(at: modelURL)
-            }
-
-            // 從列表移除
-            importedModels.removeAll { $0.id == model.id }
-            saveImportedModels()
-
-            // 如果當前選擇的模型被刪除，清除選擇
-            if whisperModelPath == modelURL.path {
-                whisperModelPath = ""
-            }
-
-            logger.info("模型已刪除: \(model.fileName)")
-        } catch {
-            logger.error("刪除模型失敗: \(error.localizedDescription)")
-        }
-    }
-
-    /// 選擇已導入的模型
-    func selectImportedModel(_ model: ImportedModel) {
-        let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
-        whisperModelPath = modelURL.path
-        logger.info("已選擇模型: \(model.fileName)")
-    }
-
-    /// 取得目前選擇模型的 URL
-    func getSelectedModelURL() -> URL? {
-        if !whisperModelPath.isEmpty {
-            return URL(fileURLWithPath: whisperModelPath)
-        }
-        return nil
-    }
 
     /// 設定音訊引擎與檢查權限
     private func setupAudioEngine() {
@@ -380,7 +202,7 @@ class VoiceInputViewModel: ObservableObject {
     private func setupHotkeys() {
         // 套用儲存的快捷鍵設定
         if let savedHotkey = HotkeyOption(rawValue: selectedHotkey) {
-            HotkeyManager.shared.setHotkey(savedHotkey)
+            hotkeyManager.setHotkey(savedHotkey)
         }
 
         // 套用儲存的觸發模式設定
@@ -396,25 +218,25 @@ class VoiceInputViewModel: ObservableObject {
         }
 
         // HotkeyManager 原始按鍵事件 → 轉發給 Controller
-        HotkeyManager.shared.onHotkeyPressed = { [weak self] in
-            DispatchQueue.main.async {
+        hotkeyManager.onHotkeyPressed = { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.hotkeyController.hotkeyPressed()
             }
         }
-        HotkeyManager.shared.onHotkeyReleased = { [weak self] in
-            DispatchQueue.main.async {
+        hotkeyManager.onHotkeyReleased = { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.hotkeyController.hotkeyReleased()
             }
         }
 
-        HotkeyManager.shared.startMonitoring()
+        hotkeyManager.startMonitoring()
     }
 
     /// 更新快捷鍵設定
     /// - Parameter option: 新的快捷鍵選項
     func updateHotkey(_ option: HotkeyOption) {
         selectedHotkey = option.rawValue
-        HotkeyManager.shared.setHotkey(option)
+        hotkeyManager.setHotkey(option)
     }
 
     /// T4-3：更新觸發模式（即時生效，不需重啟 App）
@@ -474,27 +296,13 @@ class VoiceInputViewModel: ObservableObject {
             WindowManager.shared.viewModel = self
         }
 
-        // 根據選擇的引擎初始化服務
+        // 配置 TranscriptionManager
         switch currentSpeechEngine {
         case .apple:
-            // 確保使用 SFSpeechTranscriptionService
-            if !(transcriptionService is SFSpeechTranscriptionService) {
-                transcriptionService = SFSpeechTranscriptionService()
-            }
-            // 更新轉錄服務語言
-            if let sfService = transcriptionService as? SFSpeechTranscriptionService {
-                sfService.updateLocale(identifier: selectedLanguage)
-            }
-            // 更新目前配置狀態，避免切換引擎後狀態不同步
-            currentTranscriptionConfig = TranscriptionConfig(
-                engine: .apple,
-                modelPath: "",
-                language: selectedLanguage
-            )
-            
+            transcriptionManager.configure(engine: .apple, modelURL: nil, language: selectedLanguage)
         case .whisper:
             // 檢查模型路徑是否存在
-            guard !whisperModelPath.isEmpty, FileManager.default.fileExists(atPath: whisperModelPath) else {
+            guard let modelURL = AppDelegate.sharedModelManager.getSelectedModelURL() else {
                  transcribedText = "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)"
                  WindowManager.shared.showFloatingWindow(isRecording: true)
                  appState = .recording // 暫時進入狀態以顯示錯誤
@@ -506,73 +314,14 @@ class VoiceInputViewModel: ObservableObject {
                  }
                  return
             }
-
-             // T3-2：依配置比對決定是否重建 Whisper 服務
-             // 比對 engine / modelPath / language 三項，任一不同就重建
-             // 加強檢查：若服務實例型別不符，也必須重建
-             let targetConfig = TranscriptionConfig(
-                 engine: .whisper,
-                 modelPath: whisperModelPath,
-                 language: selectedLanguage
-             )
-             
-             let isTypeMismatch = !(transcriptionService is WhisperTranscriptionService)
-             
-             if currentTranscriptionConfig != targetConfig || isTypeMismatch {
-                 if let modelURL = resolveModelURL() {
-                     logger.info("Whisper 配置變更或服務型別不符，重建服務，模型路徑: \(modelURL.path)")
-                     transcriptionService = WhisperTranscriptionService(
-                         modelURL: modelURL,
-                         language: selectedLanguage
-                     )
-                     currentTranscriptionConfig = targetConfig
-                     logger.info("WhisperTranscriptionService 建立成功")
-                 } else {
-                     logger.error("無法解析模型 URL")
-                     transcribedText = "無法解析模型 URL，請重新選擇模型"
-                     WindowManager.shared.showFloatingWindow(isRecording: true)
-                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                         WindowManager.shared.hideFloatingWindow()
-                         self.transcribedText = "等待輸入..."
-                     }
-                     return
-                 }
-             } else {
-                 logger.info("Whisper 配置未變更，重用現有服務")
-             }
-
+            transcriptionManager.configure(engine: .whisper, modelURL: modelURL, language: selectedLanguage)
         }
 
         // 顯示浮動視窗（錄音模式）
         WindowManager.shared.showFloatingWindow(isRecording: true)
 
         transcribedText = ""
-        // 設定轉錄結果回調
-        transcriptionService.onTranscriptionResult = { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let text):
-                    // 只有非空文字才更新，否則保持空白
-                    if !text.isEmpty {
-                        // 若選擇繁體中文，將簡體中文轉換為繁體中文
-                        var processedText = text
-                        if self?.selectedLanguage == "zh-TW" {
-                            processedText = text.toTraditionalChinese()
-                        }
-                        
-                        // 應用字典置換
-                        processedText = DictionaryManager.shared.replaceText(processedText)
-                        
-                        self?.transcribedText = processedText
-                    }
-                case .failure(let error):
-                    // 真正的錯誤才顯示錯誤訊息
-                    self?.transcribedText = "識別錯誤：\(error.localizedDescription)"
-                }
-            }
-        }
-
-        transcriptionService.start()
+        transcriptionManager.startTranscription()
 
         // 記錄錄音開始時間（用於防抖）
         recordingStartTime = Date()
@@ -583,7 +332,7 @@ class VoiceInputViewModel: ObservableObject {
 
         do {
             try audioEngine.startRecording { [weak self] buffer in
-                self?.transcriptionService.process(buffer: buffer)
+                self?.transcriptionManager.processAudioBuffer(buffer)
             }
         } catch {
             // 錄音啟動失敗，恢復狀態
@@ -602,7 +351,7 @@ class VoiceInputViewModel: ObservableObject {
         // 停止錄音
         logger.info("[HotkeyFlow] stopRecordingAndTranscribe：開始停止錄音與轉寫")
         audioEngine.stopRecording()
-        transcriptionService.stop()
+        transcriptionManager.stopTranscription()
         // 通知 Controller 錄音已結束
         hotkeyController.isRecording = false
 
@@ -681,7 +430,9 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 執行插入文字並隱藏視窗
     private func proceedToInsertAndHide() {
-        addTranscriptionHistoryIfNeeded(transcribedText)
+        Task { @MainActor in
+            AppDelegate.sharedHistoryManager.addHistoryIfNeeded(transcribedText)
+        }
 
         // 自動插入文字到當前應用程式
         if autoInsertText && !transcribedText.isEmpty && transcribedText != "等待輸入..." {
@@ -725,34 +476,6 @@ class VoiceInputViewModel: ObservableObject {
         }
     }
 
-    /// 添加轉錄歷史（僅保留最近 10 筆）
-    private func addTranscriptionHistoryIfNeeded(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "等待輸入...", !trimmed.hasPrefix("識別錯誤：") else {
-            return
-        }
-
-        let item = TranscriptionHistoryItem(text: trimmed, createdAt: Date())
-        transcriptionHistory.insert(item, at: 0)
-        if transcriptionHistory.count > 10 {
-            transcriptionHistory = Array(transcriptionHistory.prefix(10))
-        }
-        saveTranscriptionHistory()
-    }
-
-    /// 刪除指定歷史紀錄
-    func deleteHistoryItem(_ item: TranscriptionHistoryItem) {
-        transcriptionHistory.removeAll { $0.id == item.id }
-        saveTranscriptionHistory()
-    }
-
-    /// 複製歷史文字到剪貼簿
-    func copyHistoryText(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-    }
-
     /// 隱藏浮動視窗
     private func hideWindow() {
         // 顯示最終結果一段時間後隱藏
@@ -770,26 +493,6 @@ class VoiceInputViewModel: ObservableObject {
         } else if appState == .idle {
             handleStartRecordingRequest()
         }
-    }
-
-    private func resolveModelURL() -> URL? {
-        // 直接使用路徑解析，因為所有模型現在都應該在 App Sandbox 內
-        guard !whisperModelPath.isEmpty else { return nil }
-        let url = URL(fileURLWithPath: whisperModelPath)
-        
-        // 簡單驗證檔案是否存在
-        if FileManager.default.fileExists(atPath: url.path) {
-            return url
-        } else {
-             logger.warning("模型檔案不存在: \(url.path)")
-             return nil
-        }
-    }
-
-    /// 在 Finder 中顯示模型檔案
-    func showModelInFinder(_ model: ImportedModel) {
-        let modelURL = modelsDirectory.appendingPathComponent(model.fileName)
-        NSWorkspace.shared.selectFile(modelURL.path, inFileViewerRootedAtPath: modelsDirectory.path)
     }
 
     struct EffectiveLLMConfiguration {

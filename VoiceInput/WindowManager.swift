@@ -59,6 +59,12 @@ class WindowManager: ObservableObject {
     
     /// 建立浮動面板
     private func createFloatingWindow() {
+        // 檢測是否在測試環境中，如果是則跳過視窗建立
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            logger.info("測試環境中，跳過浮動視窗建立")
+            return
+        }
+
         guard let viewModel = viewModel else {
             logger.error("WindowManager: ViewModel not set")
             return

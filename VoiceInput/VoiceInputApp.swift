@@ -18,6 +18,8 @@ struct VoiceInputApp: App {
             ContentView()
                 .environmentObject(viewModel)
                 .environmentObject(AppDelegate.sharedLLMSettingsViewModel)
+                .environmentObject(AppDelegate.sharedModelManager)
+                .environmentObject(AppDelegate.sharedHistoryManager)
                 .task {
                     WindowManager.shared.viewModel = viewModel
                 }
@@ -32,6 +34,8 @@ struct VoiceInputApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     static let sharedViewModel = VoiceInputViewModel()
     static let sharedLLMSettingsViewModel = LLMSettingsViewModel()
+    static let sharedModelManager = ModelManager()
+    static let sharedHistoryManager = HistoryManager()
 
     /// 儲存設定視窗的引用
     private var settingsWindow: NSWindow?
@@ -60,6 +64,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsView = SettingsView()
             .environmentObject(Self.sharedViewModel)
             .environmentObject(Self.sharedLLMSettingsViewModel)
+            .environmentObject(Self.sharedModelManager)
+            .environmentObject(Self.sharedHistoryManager)
 
         let hostingController = NSHostingController(rootView: settingsView)
 

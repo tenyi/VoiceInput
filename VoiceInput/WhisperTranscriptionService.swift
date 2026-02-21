@@ -1,5 +1,5 @@
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import os
 
 // MARK: - 錯誤類型
@@ -66,6 +66,8 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     nonisolated private let sampleRate: Float = 16000.0
     nonisolated private let partialTranscriptionMinDuration: Double = 1.0
 
+    nonisolated private let audioProcessingQueue = DispatchQueue(label: "com.tenyi.voiceinput.audioprocessing", qos: .userInitiated)
+
     private var isRunning = false
     private var isTranscribing = false
     private var pendingFinalTranscription = false
@@ -116,20 +118,28 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     }
 
     nonisolated func process(buffer: AVAudioPCMBuffer) {
-        // 轉換音訊格式至 16kHz 單聲道 Float，失敗或空資料則略過
-        guard let converted = convertTo16kHz(buffer: buffer), !converted.isEmpty else {
-            return
-        }
+        // 使用 unsafe opt-out 來避免 Swift 6 Concurrency warning (AVAudioPCMBuffer isn't Sendable)
+        nonisolated(unsafe) let sendableBuffer = buffer
+        
+        // 使用獨立的背景序列佇列處理，避免阻塞 CoreAudio 的 tap 執行緒
+        audioProcessingQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            // 轉換音訊格式至 16kHz 單聲道 Float，失敗或空資料則略過
+            guard let converted = self.convertTo16kHz(buffer: sendableBuffer), !converted.isEmpty else {
+                return
+            }
 
-        // 切換至 MainActor 後再存取 isRunning 等 actor-isolated 狀態
-        Task { @MainActor [weak self] in
-            guard let self = self, self.isRunning else { return }
-            self.accumulatedBuffer.append(contentsOf: converted)
-            let duration = Double(self.accumulatedBuffer.count) / Double(self.sampleRate)
-            let shouldStartChunk = duration > self.partialTranscriptionMinDuration && !self.isTranscribing
-            if shouldStartChunk {
-                Task {
-                    await self.transcribeChunkIfNeeded()
+            // 切換至 MainActor 後再存取 isRunning 等 actor-isolated 狀態
+            Task { @MainActor [weak self] in
+                guard let self = self, self.isRunning else { return }
+                self.accumulatedBuffer.append(contentsOf: converted)
+                let duration = Double(self.accumulatedBuffer.count) / Double(self.sampleRate)
+                let shouldStartChunk = duration > self.partialTranscriptionMinDuration && !self.isTranscribing
+                if shouldStartChunk {
+                    Task {
+                        await self.transcribeChunkIfNeeded()
+                    }
                 }
             }
         }
