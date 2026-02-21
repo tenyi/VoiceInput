@@ -15,6 +15,13 @@ enum AppState {
     case enhancing  // LLM 增強中
 }
 
+/// 應用程式狀態訊息常數
+enum AppStatusMessage {
+    static let waitingForInput = "等待輸入..."
+    static let missingWhisperModel = "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)"
+    static let recordingFailedPrefix = "錄音啟動失敗："
+}
+
 /// 負責管理 VoiceInput 應用程式狀態的 ViewModel
 @MainActor
 class VoiceInputViewModel: ObservableObject {
@@ -55,7 +62,7 @@ class VoiceInputViewModel: ObservableObject {
     var isTranscribing: Bool { appState == .transcribing }
 
     /// 已轉錄的文字內容
-    @Published var transcribedText = "等待輸入..."
+    @Published var transcribedText = AppStatusMessage.waitingForInput
     
     /// LLM 修正錯誤訊息（用於在懸浮視窗顯示）
     @Published var lastLLMError: String?
@@ -303,14 +310,14 @@ class VoiceInputViewModel: ObservableObject {
         case .whisper:
             // 檢查模型路徑是否存在
             guard let modelURL = AppDelegate.sharedModelManager.getSelectedModelURL() else {
-                 transcribedText = "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)"
+                 transcribedText = AppStatusMessage.missingWhisperModel
                  WindowManager.shared.showFloatingWindow(isRecording: true)
                  appState = .recording // 暫時進入狀態以顯示錯誤
                  
                  DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                      WindowManager.shared.hideFloatingWindow()
                      self.appState = .idle
-                     self.transcribedText = "等待輸入..."
+                     self.transcribedText = AppStatusMessage.waitingForInput
                  }
                  return
             }
@@ -337,11 +344,11 @@ class VoiceInputViewModel: ObservableObject {
         } catch {
             // 錄音啟動失敗，恢復狀態
             appState = .idle
-            transcribedText = "錄音啟動失敗：\(error.localizedDescription)"
+            transcribedText = "\(AppStatusMessage.recordingFailedPrefix)\(error.localizedDescription)"
             // 延遲 2 秒後再隱藏視窗，讓使用者能看清錯誤
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 WindowManager.shared.hideFloatingWindow()
-                self.transcribedText = "等待輸入..."
+                self.transcribedText = AppStatusMessage.waitingForInput
             }
         }
     }
@@ -482,7 +489,7 @@ class VoiceInputViewModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             WindowManager.shared.hideFloatingWindow()
             self?.appState = .idle
-            self?.transcribedText = "等待輸入..."
+            self?.transcribedText = AppStatusMessage.waitingForInput
         }
     }
 
@@ -493,14 +500,6 @@ class VoiceInputViewModel: ObservableObject {
         } else if appState == .idle {
             handleStartRecordingRequest()
         }
-    }
-
-    struct EffectiveLLMConfiguration {
-        let prompt: String
-        let provider: LLMProvider
-        let apiKey: String
-        let url: String
-        let model: String
     }
 }
 

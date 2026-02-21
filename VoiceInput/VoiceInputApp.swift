@@ -112,4 +112,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return true
     }
+
+    /// 當應用程式即將關閉時
+    func applicationWillTerminate(_ notification: Notification) {
+        // 繞過 whisper.cpp / ggml-metal 中的全域 C++ 物件解構過程
+        // 以避免在一般 exit() 進入清理階段時發生 ggml_abort 當機
+        _exit(0)
+    }
 }

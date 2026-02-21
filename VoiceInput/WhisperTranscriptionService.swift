@@ -103,7 +103,10 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
         isRunning = true
         isTranscribing = false
         pendingFinalTranscription = false
-        accumulatedBuffer.removeAll()
+        accumulatedBuffer.removeAll(keepingCapacity: true)
+        if accumulatedBuffer.capacity < 16000 * 60 * 60 { // Reserve 1 hour
+            accumulatedBuffer.reserveCapacity(16000 * 60 * 60)
+        }
     }
 
     func stop() {
@@ -205,33 +208,44 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
         }
     }
 
-    // MARK: - Audio Conversion
+    // MARK: - Audio Conversion Optimization
+    nonisolated(unsafe) private var audioConverter: AVAudioConverter?
+    nonisolated(unsafe) private var conversionBuffer: AVAudioPCMBuffer?
 
     nonisolated private func convertTo16kHz(buffer: AVAudioPCMBuffer) -> [Float]? {
         let format = buffer.format
 
+        // 若輸入已經是 16kHz 單聲道，直接返回資料
         if format.sampleRate == 16000, format.channelCount == 1, let channelData = buffer.floatChannelData?[0] {
             return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
         }
 
-        guard
-            let outputFormat = AVAudioFormat(
+        // 初始化或重用轉換器與緩衝區
+        if audioConverter == nil || audioConverter?.inputFormat != format {
+            guard let outputFormat = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
                 sampleRate: 16000,
                 channels: 1,
                 interleaved: false
-            ),
-            let converter = AVAudioConverter(from: format, to: outputFormat)
-        else {
-            return nil
+            ) else { return nil }
+            
+            audioConverter = AVAudioConverter(from: format, to: outputFormat)
         }
+
+        guard let converter = audioConverter else { return nil }
 
         let ratio = 16000.0 / format.sampleRate
-        let capacity = UInt32(Double(buffer.frameLength) * ratio)
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
 
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else {
-            return nil
+        // 若無現有緩衝區或容量不足，則重新分配
+        if conversionBuffer == nil || conversionBuffer!.frameCapacity < capacity {
+            conversionBuffer = AVAudioPCMBuffer(pcmFormat: converter.outputFormat, frameCapacity: capacity)
         }
+
+        guard let outputBuffer = conversionBuffer else { return nil }
+        
+        // 重置長度準備寫入
+        outputBuffer.frameLength = capacity
 
         var error: NSError?
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
