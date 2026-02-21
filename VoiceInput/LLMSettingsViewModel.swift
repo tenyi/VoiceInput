@@ -67,30 +67,22 @@ class LLMSettingsViewModel: ObservableObject {
     private let saveAPIKeySubject = PassthroughSubject<(String, LLMProvider, String?), Never>()
     private var cancellables = Set<AnyCancellable>()
     
-    /// 用於阻擋程式內部修改 `llmAPIKey` 時觸發 `didSet` 的自動儲存
-    private var isInternalUpdating = false
+    // MARK: - AppStorage 設定
     
-    // MARK: - AppStorage 設定 (Migrated to @Published & UserDefaults)
-    
-    @Published var llmProvider: String {
+    @AppStorage("llmProvider") var llmProvider: String = LLMProvider.openAI.rawValue {
         didSet {
-            userDefaults.set(llmProvider, forKey: "llmProvider")
-            // 切換 Provider 時，自動載入對應設定
+            // 切換 Provider 時，我們只處理非敏感資料的載入。
+            // 敏感資料 (API Key) 的拉取我們現在只靠 View 的需求或底層實際請求來決定
             let provider = currentLLMProvider
             loadBuiltInProviderSettings(for: provider)
             loadAPIKey(for: provider, customId: selectedCustomProviderId)
         }
     }
     
-    @Published var llmEnabled: Bool {
-        didSet { userDefaults.set(llmEnabled, forKey: "llmEnabled") }
-    }
+    @AppStorage("llmEnabled") var llmEnabled: Bool = false
 
-    @Published var llmURL: String {
-        didSet { 
-            userDefaults.set(llmURL, forKey: "llmURL")
-            saveCurrentBuiltInProviderSettings() 
-        }
+    @AppStorage("llmURL") var llmURL: String = "" {
+        didSet { saveCurrentBuiltInProviderSettings() }
     }
 
     @Published var llmAPIKey: String = "" {
@@ -100,24 +92,14 @@ class LLMSettingsViewModel: ObservableObject {
         }
     }
     
-    @Published var llmModel: String {
-        didSet { 
-            userDefaults.set(llmModel, forKey: "llmModel")
-            saveCurrentBuiltInProviderSettings() 
-        }
+    @AppStorage("llmModel") var llmModel: String = "" {
+        didSet { saveCurrentBuiltInProviderSettings() }
     }
     
-    @Published var llmPrompt: String {
-        didSet { userDefaults.set(llmPrompt, forKey: "llmPrompt") }
-    }
+    @AppStorage("llmPrompt") var llmPrompt: String = ""
     
-    @Published var selectedCustomProviderId: String? {
+    @AppStorage("selectedCustomProviderId") var selectedCustomProviderId: String? {
         didSet {
-            if let id = selectedCustomProviderId {
-                userDefaults.set(id, forKey: "selectedCustomProviderId")
-            } else {
-                userDefaults.removeObject(forKey: "selectedCustomProviderId")
-            }
             let provider = currentLLMProvider
             loadBuiltInProviderSettings(for: provider)
             loadAPIKey(for: provider, customId: selectedCustomProviderId)
@@ -134,30 +116,26 @@ class LLMSettingsViewModel: ObservableObject {
     
     private let keychain: KeychainProtocol
     private let userDefaults: UserDefaults
+    private var isInternalUpdating = false
 
     init(keychain: KeychainProtocol = KeychainHelper.shared, userDefaults: UserDefaults = .standard) {
         self.keychain = keychain
         self.userDefaults = userDefaults
         
-        self._customProvidersData = AppStorage(wrappedValue: Data(), "customProvidersData", store: userDefaults)
-        self._builtInProviderSettingsData = AppStorage(wrappedValue: Data(), "builtInProviderSettingsData", store: userDefaults)
-        
-        // Initialize properties from UserDefaults
-        self.llmProvider = userDefaults.string(forKey: "llmProvider") ?? LLMProvider.openAI.rawValue
-        self.llmEnabled = userDefaults.bool(forKey: "llmEnabled")
-        self.llmURL = userDefaults.string(forKey: "llmURL") ?? ""
-        self.llmModel = userDefaults.string(forKey: "llmModel") ?? ""
-        self.llmPrompt = userDefaults.string(forKey: "llmPrompt") ?? ""
-        self.selectedCustomProviderId = userDefaults.string(forKey: "selectedCustomProviderId")
-        
         setupAPIKeySaving()
-        
         loadCustomProviders()
         loadBuiltInProviderSettingsData()
         
-        let provider = currentLLMProvider
-        loadBuiltInProviderSettings(for: provider)
-        loadAPIKey(for: provider, customId: selectedCustomProviderId)
+        // 為了避免 AppStorage 尚未掛載完成導致的競態條件，手動讀取 UserDefaults.standard 取得真正的值
+        let realProviderString = userDefaults.string(forKey: "llmProvider") ?? LLMProvider.openAI.rawValue
+        let realCustomId = userDefaults.string(forKey: "selectedCustomProviderId")
+        
+        let initialProvider = LLMProvider(rawValue: realProviderString) ?? .openAI
+        let effectiveProvider = (realCustomId != nil && realProviderString == "Custom") ? .custom : initialProvider
+        
+        // 根據剛才手動抓到的真實值來進行配置（這時候 selectedCustomProviderId 哪怕還沒 didSet，我們也已經掌握到其確實的值）
+        loadBuiltInProviderSettings(for: effectiveProvider)
+        loadAPIKey(for: effectiveProvider, customId: realCustomId)
         
         // 遷移防錯
         loadLegacyLLMAPIKeyIfNeeded()
@@ -175,7 +153,7 @@ class LLMSettingsViewModel: ObservableObject {
     // MARK: - Provider 計算屬性
     
     var currentLLMProvider: LLMProvider {
-        if selectedCustomProviderId != nil {
+        if selectedCustomProviderId != nil && llmProvider == "Custom" {
             return .custom
         }
         return LLMProvider(rawValue: llmProvider) ?? .openAI
@@ -200,7 +178,7 @@ class LLMSettingsViewModel: ObservableObject {
             let decoder = JSONDecoder()
             customProviders = try decoder.decode([CustomLLMProvider].self, from: customProvidersData)
         } catch {
-            logger.error("無法載入自訂 Provider 列表: \\(error.localizedDescription)")
+            logger.error("無法載入自訂 Provider 列表: \(error.localizedDescription)")
             customProviders = []
         }
     }
@@ -210,7 +188,7 @@ class LLMSettingsViewModel: ObservableObject {
             let encoder = JSONEncoder()
             customProvidersData = try encoder.encode(customProviders)
         } catch {
-            logger.error("無法儲存自訂 Provider 列表: \\(error.localizedDescription)")
+            logger.error("無法儲存自訂 Provider 列表: \(error.localizedDescription)")
         }
     }
     
@@ -266,7 +244,7 @@ class LLMSettingsViewModel: ObservableObject {
             builtInProviderSettings = try JSONDecoder().decode([String: BuiltInProviderSettings].self, from: builtInProviderSettingsData)
         } catch {
             builtInProviderSettings = [:]
-            logger.error("無法載入內建 Provider 設定: \\(error.localizedDescription)")
+            logger.error("無法載入內建 Provider 設定: \(error.localizedDescription)")
         }
     }
     
@@ -274,7 +252,7 @@ class LLMSettingsViewModel: ObservableObject {
         do {
             builtInProviderSettingsData = try JSONEncoder().encode(builtInProviderSettings)
         } catch {
-            logger.error("無法儲存內建 Provider 設定: \\(error.localizedDescription)")
+            logger.error("無法儲存內建 Provider 設定: \(error.localizedDescription)")
         }
     }
     
@@ -317,13 +295,8 @@ class LLMSettingsViewModel: ObservableObject {
         }
     }
 
-    private func saveCurrentAPIKey() {
-        saveAPIKey(key: llmAPIKey, provider: currentLLMProvider, customId: selectedCustomProviderId)
-    }
-
     private func saveAPIKey(key: String, provider: LLMProvider, customId: String?) {
         let account = providerAPIKeyAccount(for: provider, customId: customId)
-
         keychain.save(
             key,
             service: "com.tenyi.voiceinput",
@@ -341,7 +314,7 @@ class LLMSettingsViewModel: ObservableObject {
             llmAPIKey = savedKey
         } else if let legacyKey = keychain.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), provider == .openAI {
             llmAPIKey = legacyKey
-            saveCurrentAPIKey()
+            saveAPIKey(key: legacyKey, provider: provider, customId: customId)
         } else {
             llmAPIKey = ""
         }
@@ -350,11 +323,20 @@ class LLMSettingsViewModel: ObservableObject {
     // MARK: - Configuration 解析
     
     /// 解析最終要送給 LLM 請求的組態
+    /// 為了絕對的準確性：實際發送請求時不看 ViewModel 當下可能處於過渡期的 llmAPIKey
+    /// 而是直接同步重拉一次 Keychain，確保每次呼叫 LLM 必定使用符合當前 Provider/customId 的正確金鑰。
     func resolveEffectiveConfiguration() -> EffectiveLLMConfiguration {
-        LLMSettingsViewModel.resolveEffectiveLLMConfiguration(
+        let providerString = userDefaults.string(forKey: "llmProvider") ?? LLMProvider.openAI.rawValue
+        let customId = userDefaults.string(forKey: "selectedCustomProviderId")
+        let requestProvider = (customId != nil && providerString == "Custom") ? .custom : (LLMProvider(rawValue: providerString) ?? .openAI)
+        let exactAccountName = providerAPIKeyAccount(for: requestProvider, customId: customId)
+        
+        let exactAPIKey = keychain.read(service: "com.tenyi.voiceinput", account: exactAccountName) ?? ""
+
+        return LLMSettingsViewModel.resolveEffectiveLLMConfiguration(
             prompt: llmPrompt,
-            provider: currentLLMProvider,
-            apiKey: llmAPIKey,
+            provider: requestProvider,
+            apiKey: exactAPIKey,
             url: llmURL,
             model: llmModel,
             selectedCustomProvider: selectedCustomProvider
@@ -379,7 +361,6 @@ class LLMSettingsViewModel: ObservableObject {
             resolvedProvider = .custom
             resolvedURL = custom.url
             resolvedModel = custom.model
-            resolvedAPIKey = apiKey
         }
         
         return EffectiveLLMConfiguration(

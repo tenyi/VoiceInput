@@ -333,14 +333,6 @@ struct LLMSettingsView: View {
             }
         }
         .padding()
-        .onAppear {
-            // 載入已儲存的 provider
-            if let customProvider = llmSettings.selectedCustomProvider {
-                applySelectedCustomProvider(customProvider)
-            } else {
-                applyBuiltInProvider(llmSettings.currentLLMProvider)
-            }
-        }
         .sheet(isPresented: $showingAddCustomProvider) {
             AddCustomProviderSheet(llmSettings: llmSettings) { newProvider, newAPIKey in
                 llmSettings.addCustomProvider(newProvider)
