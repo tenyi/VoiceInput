@@ -7,17 +7,17 @@ import CoreAudio
 
 /// 負責處理麥克風輸入與權限管理的音訊引擎
 /// This class handles microphone input and permission management.
-class AudioEngine: ObservableObject, AudioEngineProtocol {
+class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAudioDataOutputSampleBufferDelegate {
     /// 單例實例
     static let shared = AudioEngine()
     
     /// 日誌記錄器
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "AudioEngine")
 
-    /// AVAudioEngine 實例，用於處理音訊流
-    private var audioEngine = AVAudioEngine()
-    /// 麥克風輸入節點
-    private var inputNode: AVAudioInputNode?
+    /// AVCaptureSession 實例，用於處理音訊流
+    private var captureSession: AVCaptureSession?
+    /// 音訊資料輸出
+    private var audioDataOutput: AVCaptureAudioDataOutput?
 
     /// 是否正在錄音
     @Published var isRecording = false
@@ -32,9 +32,16 @@ class AudioEngine: ObservableObject, AudioEngineProtocol {
     /// 權限管理員
     private let permissionManager = PermissionManager.shared
 
-    private var deviceObserver: NSObjectProtocol?
+    /// 儲存兩個設備通知的 observer token（connected + disconnected），確保 deinit 時能完整移除
+    private var deviceObservers: [NSObjectProtocol] = []
 
-    private init() {
+    /// 音訊回調
+    private var bufferCallback: ((AVAudioPCMBuffer) -> Void)?
+    /// 截取佇列
+    private let captureQueue = DispatchQueue(label: "com.voiceinput.audiocapture")
+
+    private override init() {
+        super.init()
         refreshAvailableDevices()
         setupDeviceNotificationObserver()
     }
@@ -53,40 +60,17 @@ class AudioEngine: ObservableObject, AudioEngineProtocol {
         }
     }
 
-    /// 請求麥克風使用權限
-    /// Requests microphone usage permission.
-    private func requestMicrophonePermission(completion: @escaping (Bool) -> Void) {
-        // 檢查目前的授權狀態
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            completion(true)
-        case .notDetermined:
-            // 尚未決定，請求權限
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async {
-                    completion(granted)
-                }
-            }
-        case .denied, .restricted:
-            // 被拒絕或受限
-            completion(false)
-        @unknown default:
-            completion(false)
-        }
-    }
-
     deinit {
-        if let observer = deviceObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        // 移除所有已註冊的 NotificationCenter observer，防止記憶體洩漏
+        deviceObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     // MARK: - 設備監聽
 
     /// 設置設備連接/斷開通知監聽
     private func setupDeviceNotificationObserver() {
-        // 監聽設備連接
-        deviceObserver = NotificationCenter.default.addObserver(
+        // 監聽設備連接，並儲存 token 以便 deinit 時移除
+        let connectedObserver = NotificationCenter.default.addObserver(
             forName: AVCaptureDevice.wasConnectedNotification,
             object: nil,
             queue: .main
@@ -94,14 +78,16 @@ class AudioEngine: ObservableObject, AudioEngineProtocol {
             self?.refreshAvailableDevices()
         }
 
-        // 監聽設備斷開
-        NotificationCenter.default.addObserver(
+        // 監聽設備斷開，同樣儲存 token 以防記憶體洩漏
+        let disconnectedObserver = NotificationCenter.default.addObserver(
             forName: AVCaptureDevice.wasDisconnectedNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             self?.refreshAvailableDevices()
         }
+
+        deviceObservers = [connectedObserver, disconnectedObserver]
     }
 
     // MARK: - 設備列表
@@ -172,173 +158,94 @@ class AudioEngine: ObservableObject, AudioEngineProtocol {
         guard permissionGranted else { return }
 
         // 先停止現有的引擎（如果有的話）
-        if audioEngine.isRunning {
-            audioEngine.stop()
+        if let session = captureSession, session.isRunning {
+            session.stopRunning()
         }
 
-        // 重新創建 AVAudioEngine 以確保使用最新的設備設置
-        audioEngine = AVAudioEngine()
-        inputNode = audioEngine.inputNode
-
-        // 若使用者指定設備，嘗試設置為預設輸入設備
-        // 先用 UID 比對，若不一致再用設備名稱回退，避免不同 API 的識別碼格式不一致
-        if let selectedDeviceID {
-            let fallbackName = getSelectedDevice()?.localizedName
-            let switched = setInputDevice(uniqueID: selectedDeviceID, fallbackName: fallbackName)
-            if !switched {
-                logger.warning("指定輸入設備切換失敗，將沿用系統當前預設輸入設備")
-            }
+        self.bufferCallback = callback
+        
+        let session = AVCaptureSession()
+        
+        // 找到指定的實體麥克風裝置
+        guard let device = getSelectedDevice() else {
+            logger.error("無法取得指定的音訊輸入裝置")
+            throw NSError(domain: "AudioEngineError", code: 2, userInfo: [NSLocalizedDescriptionKey: "無法綁定音訊裝置"])
         }
+        
+        logger.info("準備啟動錄音，目標麥克風: \(device.localizedName)")
 
-        let recordingFormat = inputNode?.outputFormat(forBus: 0)
-
-        // 安裝 Tap 以擷取音訊緩衝區
-        inputNode?.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer, when) in
-            callback(buffer)
+        // 建立輸入
+        let audioInput = try AVCaptureDeviceInput(device: device)
+        guard session.canAddInput(audioInput) else {
+            logger.error("無法將音訊輸入加入到 session 中")
+            throw NSError(domain: "AudioEngineError", code: 3, userInfo: [NSLocalizedDescriptionKey: "設備不支持"])
         }
+        session.addInput(audioInput)
 
-        try audioEngine.start()
-        isRecording = true
-    }
-
-    /// 設置輸入設備
-    /// 使用 Core Audio API 將指定設備設置為系統默認輸入設備
-    /// - Parameters:
-    ///   - uniqueID: 首選識別碼（AVCapture uniqueID）
-    ///   - fallbackName: 當 UID 不匹配時，用設備名稱做回退比對
-    /// - Returns: 是否成功切換
-    private func setInputDevice(uniqueID: String, fallbackName: String?) -> Bool {
-        // 獲取所有音訊設備並查找匹配的設備 ID
-        var propertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var dataSize: UInt32 = 0
-        var status = AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &dataSize
-        )
-
-        guard status == noErr else {
-            logger.error("無法獲取音訊設備列表大小，錯誤碼: \(status)")
-            return false
+        // 建立輸出
+        let audioOutput = AVCaptureAudioDataOutput()
+        guard session.canAddOutput(audioOutput) else {
+            logger.error("無法將音訊輸出加入到 session 中")
+            throw NSError(domain: "AudioEngineError", code: 4, userInfo: [NSLocalizedDescriptionKey: "系統不支持"])
         }
+        audioOutput.setSampleBufferDelegate(self, queue: captureQueue)
+        session.addOutput(audioOutput)
 
-        let deviceCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
-        var devices = [AudioDeviceID](repeating: 0, count: deviceCount)
+        self.captureSession = session
+        self.audioDataOutput = audioOutput
 
-        status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &propertyAddress,
-            0,
-            nil,
-            &dataSize,
-            &devices
-        )
-
-        guard status == noErr else {
-            logger.error("無法獲取音訊設備列表，錯誤碼: \(status)")
-            return false
-        }
-
-        // 先嘗試用 CoreAudio Device UID 匹配
-        var targetDeviceID: AudioDeviceID = 0
-
-        for dev in devices {
-            var uidPropertyAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceUID,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-
-            var deviceUID: Unmanaged<CFString>?
-            var uidSize = UInt32(MemoryLayout<Unmanaged<CFString>>.size)
-
-            let uidStatus = AudioObjectGetPropertyData(
-                dev,
-                &uidPropertyAddress,
-                0,
-                nil,
-                &uidSize,
-                &deviceUID
-            )
-
-            if uidStatus == noErr, let uidString = deviceUID?.takeUnretainedValue() as String?, uidString == uniqueID {
-                targetDeviceID = dev
-                break
-            }
-        }
-
-        // UID 對不上時，回退用設備名稱匹配（兼容不同 API 的識別碼格式）
-        if targetDeviceID == 0, let fallbackName {
-            for dev in devices {
-                var namePropertyAddress = AudioObjectPropertyAddress(
-                    mSelector: kAudioDevicePropertyDeviceNameCFString,
-                    mScope: kAudioObjectPropertyScopeGlobal,
-                    mElement: kAudioObjectPropertyElementMain
-                )
-
-                var deviceName: Unmanaged<CFString>?
-                var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>>.size)
-                let nameStatus = AudioObjectGetPropertyData(
-                    dev,
-                    &namePropertyAddress,
-                    0,
-                    nil,
-                    &nameSize,
-                    &deviceName
-                )
-
-                if nameStatus == noErr, let nameStr = deviceName?.takeUnretainedValue() as String?, nameStr == fallbackName {
-                    targetDeviceID = dev
-                    logger.info("UID 比對失敗，已以設備名稱回退匹配: \(fallbackName)")
-                    break
-                }
-            }
-        }
-
-        guard targetDeviceID != 0 else {
-            logger.warning("找不到匹配的音訊設備 uniqueID: \(uniqueID), fallbackName: \(fallbackName ?? "nil")")
-            return false
-        }
-
-        // 設置為系統默認輸入設備
-        var defaultInputPropertyAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-
-        var mutableDeviceID = targetDeviceID
-        status = AudioObjectSetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &defaultInputPropertyAddress,
-            0,
-            nil,
-            UInt32(MemoryLayout<AudioDeviceID>.size),
-            &mutableDeviceID
-        )
-
-        if status == noErr {
-            logger.info("已成功切換輸入設備 uniqueID: \(uniqueID)")
-            return true
-        } else {
-            logger.error("無法切換輸入設備 uniqueID: \(uniqueID), 錯誤碼: \(status)")
-            return false
+        session.startRunning()
+        
+        DispatchQueue.main.async {
+            self.isRecording = true
         }
     }
 
     /// 停止錄音
     /// Stops recording.
     func stopRecording() {
-        inputNode?.removeTap(onBus: 0)
-        audioEngine.stop()
-        isRecording = false
+        captureSession?.stopRunning()
+        captureSession = nil
+        audioDataOutput = nil
+        bufferCallback = nil
+        
+        DispatchQueue.main.async {
+            self.isRecording = false
+        }
+    }
+
+    // MARK: - AVCaptureAudioDataOutputSampleBufferDelegate
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let callback = bufferCallback else { return }
+
+        // 解析 CMSampleBuffer 為 AVAudioPCMBuffer
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let streamBasicDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription),
+              let format = AVAudioFormat(streamDescription: streamBasicDescription) else {
+            logger.error("無法取得音訊格式描述")
+            return
+        }
+
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            logger.error("無法分配 AVAudioPCMBuffer")
+            return
+        }
+        pcmBuffer.frameLength = frameCount
+
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer,
+            at: 0,
+            frameCount: Int32(frameCount),
+            into: pcmBuffer.mutableAudioBufferList
+        )
+
+        if status == noErr {
+            callback(pcmBuffer)
+        } else {
+            logger.error("複製 PCM 資料失敗，錯誤碼: \(status)")
+        }
     }
 }
 

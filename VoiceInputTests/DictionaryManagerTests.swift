@@ -59,9 +59,19 @@ final class DictionaryManagerTests: XCTestCase {
     }
 
     func testCaseInsensitiveReplacement() {
-        manager.addItem(original: "foo", replacement: "bar")
+        manager.addItem(original: "foo", replacement: "bar", isCaseSensitive: false)
         let result = manager.replaceText("This is FOO.")
         XCTAssertEqual(result, "This is bar.")
+    }
+
+    func testCaseSensitiveReplacement() {
+        manager.addItem(original: "foo", replacement: "bar", isCaseSensitive: true)
+        let result = manager.replaceText("This is FOO.")
+        // 因為有區分大小寫，所以不會替換
+        XCTAssertEqual(result, "This is FOO.")
+        
+        let result2 = manager.replaceText("This is foo.")
+        XCTAssertEqual(result2, "This is bar.")
     }
 
     func testMultipleReplacements() {

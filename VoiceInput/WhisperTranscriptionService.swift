@@ -103,10 +103,11 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
         isRunning = true
         isTranscribing = false
         pendingFinalTranscription = false
-        accumulatedBuffer.removeAll(keepingCapacity: true)
-        if accumulatedBuffer.capacity < 16000 * 60 * 60 { // Reserve 1 hour
-            accumulatedBuffer.reserveCapacity(16000 * 60 * 60)
-        }
+        // 預留 5 分鐘的音訊容量（16000 Hz * 60s * 5 * 4 bytes ≈ 19MB），
+        // 避免先前預留 1 小時（~230MB）造成不必要的大量記憶體佔用。
+        // 使用 keepingCapacity:false 讓 Swift 依實際使用量動態擴增。
+        accumulatedBuffer.removeAll(keepingCapacity: false)
+        accumulatedBuffer.reserveCapacity(16000 * 60 * 5)
     }
 
     func stop() {
@@ -121,27 +122,26 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     }
 
     nonisolated func process(buffer: AVAudioPCMBuffer) {
-        // 使用 unsafe opt-out 來避免 Swift 6 Concurrency warning (AVAudioPCMBuffer isn't Sendable)
-        nonisolated(unsafe) let sendableBuffer = buffer
-        
         // 使用獨立的背景序列佇列處理，避免阻塞 CoreAudio 的 tap 執行緒
         audioProcessingQueue.async { [weak self] in
             guard let self = self else { return }
             
-            // 轉換音訊格式至 16kHz 單聲道 Float，失敗或空資料則略過
-            guard let converted = self.convertTo16kHz(buffer: sendableBuffer), !converted.isEmpty else {
-                return
-            }
+            // 轉換音訊格式至 16kHz 單聲道 Float，改透過安全的 Actor 執行
+            Task {
+                guard let converted = await self.audioConverterActor.convertTo16kHz(buffer: buffer), !converted.isEmpty else {
+                    return
+                }
 
-            // 切換至 MainActor 後再存取 isRunning 等 actor-isolated 狀態
-            Task { @MainActor [weak self] in
-                guard let self = self, self.isRunning else { return }
-                self.accumulatedBuffer.append(contentsOf: converted)
-                let duration = Double(self.accumulatedBuffer.count) / Double(self.sampleRate)
-                let shouldStartChunk = duration > self.partialTranscriptionMinDuration && !self.isTranscribing
-                if shouldStartChunk {
-                    Task {
-                        await self.transcribeChunkIfNeeded()
+                // 切換至 MainActor 後再存取 isRunning 等 actor-isolated 狀態
+                await MainActor.run { [weak self] in
+                    guard let self = self, self.isRunning else { return }
+                    self.accumulatedBuffer.append(contentsOf: converted)
+                    let duration = Double(self.accumulatedBuffer.count) / Double(self.sampleRate)
+                    let shouldStartChunk = duration > self.partialTranscriptionMinDuration && !self.isTranscribing
+                    if shouldStartChunk {
+                        Task {
+                            await self.transcribeChunkIfNeeded()
+                        }
                     }
                 }
             }
@@ -209,10 +209,15 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     }
 
     // MARK: - Audio Conversion Optimization
-    nonisolated(unsafe) private var audioConverter: AVAudioConverter?
-    nonisolated(unsafe) private var conversionBuffer: AVAudioPCMBuffer?
+    nonisolated private let audioConverterActor = AudioConverterActor()
+}
 
-    nonisolated private func convertTo16kHz(buffer: AVAudioPCMBuffer) -> [Float]? {
+/// 用於隔離非 Sendable 的 AVAudioConverter 資源的 Actor
+actor AudioConverterActor {
+    private var audioConverter: AVAudioConverter?
+    private var conversionBuffer: AVAudioPCMBuffer?
+
+    func convertTo16kHz(buffer: AVAudioPCMBuffer) -> [Float]? {
         let format = buffer.format
 
         // 若輸入已經是 16kHz 單聲道，直接返回資料

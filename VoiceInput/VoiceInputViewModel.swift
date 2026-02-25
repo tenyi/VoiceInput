@@ -102,7 +102,9 @@ class VoiceInputViewModel: ObservableObject {
     private var hotkeyManager: HotkeyManagerProtocol
 
     /// 轉錄管理器 - 負責轉錄狀態管理
-    @ObservedObject var transcriptionManager = TranscriptionManager()
+    // 注意：不使用 @ObservedObject，因為該 wrapper 只在 SwiftUI View 中有效。
+    // 子物件的 objectWillChange 透過 Combine 在 setupTranscriptionManager() 中手動橋接。
+    var transcriptionManager = TranscriptionManager()
     
     /// Combine 訂閱
     /// Combine 訂閱
@@ -111,7 +113,9 @@ class VoiceInputViewModel: ObservableObject {
     private var inputSimulator: InputSimulatorProtocol
 
     /// 權限管理員
-    @ObservedObject var permissionManager = PermissionManager.shared
+    // 注意：不使用 @ObservedObject，因為該 wrapper 只在 SwiftUI View 中有效。
+    // 子物件的 objectWillChange 透過 Combine 在 setupTranscriptionManager() 中手動橋接。
+    var permissionManager = PermissionManager.shared
 
     /// 可選語言清單
     let availableLanguages = [
@@ -179,6 +183,16 @@ class VoiceInputViewModel: ObservableObject {
             .sink { [weak self] newText in
                 self?.transcribedText = newText
             }
+            .store(in: &cancellables)
+        
+        // 橋接子 ObservableObject 的 objectWillChange 到父 ViewModel，
+        // 確保 SwiftUI 觀察到子物件狀態變更時能正確觸發 View 更新。
+        // （@ObservedObject 只在 SwiftUI View 中有效，class 內需手動橋接）
+        transcriptionManager.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        permissionManager.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
     }
 
@@ -314,7 +328,8 @@ class VoiceInputViewModel: ObservableObject {
                  WindowManager.shared.showFloatingWindow(isRecording: true)
                  appState = .recording // 暫時進入狀態以顯示錯誤
                  
-                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                     guard let self else { return }
                      WindowManager.shared.hideFloatingWindow()
                      self.appState = .idle
                      self.transcribedText = AppStatusMessage.waitingForInput
@@ -346,7 +361,8 @@ class VoiceInputViewModel: ObservableObject {
             appState = .idle
             transcribedText = "\(AppStatusMessage.recordingFailedPrefix)\(error.localizedDescription)"
             // 延遲 2 秒後再隱藏視窗，讓使用者能看清錯誤
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                guard let self else { return }
                 WindowManager.shared.hideFloatingWindow()
                 self.transcribedText = AppStatusMessage.waitingForInput
             }
@@ -407,14 +423,18 @@ class VoiceInputViewModel: ObservableObject {
         // 避免在 ViewModel 中直接依賴 EnvironmentObject
         let config = AppDelegate.sharedLLMSettingsViewModel.resolveEffectiveConfiguration()
 
-        LLMProcessingService.shared.process(
-            text: transcribedText,
-            config: config,
-            logger: logger
-        ) { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let correctedText):
+        Task {
+            do {
+                let correctedText = try await LLMService.shared.correctText(
+                    text: transcribedText,
+                    prompt: config.prompt,
+                    provider: config.provider,
+                    apiKey: config.apiKey,
+                    url: config.url,
+                    model: config.model
+                )
+                
+                await MainActor.run { [weak self] in
                     // 若選擇繁體中文，將簡體中文轉換為繁體中文
                     var processedText = correctedText
                     if self?.selectedLanguage == "zh-TW" {
@@ -423,14 +443,18 @@ class VoiceInputViewModel: ObservableObject {
                     
                     // 應用字典置換
                     processedText = DictionaryManager.shared.replaceText(processedText)
-                    
                     self?.transcribedText = processedText
-                case .failure(let error):
+                    
+                    completion()
+                }
+            } catch {
+                await MainActor.run { [weak self] in
                     // 若修正失敗，保留原文繼續執行，並記錄錯誤訊息
                     self?.lastLLMError = error.localizedDescription
-                    self?.logger.error("LLM 修正失敗: \(error.localizedDescription)")
+                    self?.logger.error("LLM 修正失敗: \\(error.localizedDescription)")
+                    
+                    completion()
                 }
-                completion()
             }
         }
     }

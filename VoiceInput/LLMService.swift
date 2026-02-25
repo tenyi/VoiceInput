@@ -33,8 +33,8 @@ enum LLMServiceError: LocalizedError {
 
 /// LLM 服務類別，統一處理不同 provider 的 API 呼叫
 class LLMService {
-    /// 單例模式
-    static var shared = LLMService()
+    /// 單例模式，使用 let 防止外部替換
+    static let shared = LLMService()
 
     private let networkProvider: NetworkProviderProtocol
 
@@ -183,7 +183,8 @@ class LLMService {
             "temperature": 0.3
         ]
 
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        // 如果序列化失敗，向上拋出明確錯誤而非發送空 body 造成難以追蹤的 API 錯誤
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return try await performRequest(request, parser: parseOpenAILikeResponse)
     }
 
@@ -216,7 +217,8 @@ class LLMService {
                 ["role": "user", "content": text]
             ]
         ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        // 如果序列化失敗，向上拋出明確錯誤而非發送空 body
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return try await performRequest(request, parser: parseAnthropicResponse)
     }
 
@@ -249,7 +251,8 @@ class LLMService {
             "temperature": 0.3
         ]
 
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        // 如果序列化失敗，向上拋出明確錯誤而非發送空 body
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return try await performRequest(request, parser: parseOpenAILikeResponse)
     }
 
@@ -283,7 +286,8 @@ class LLMService {
         ]
         if !model.isEmpty { body["model"] = model }
 
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        // 如果序列化失敗，向上拋出明確錯誤而非發送空 body
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return try await performRequest(request, parser: parseOpenAILikeResponse)
     }
 }

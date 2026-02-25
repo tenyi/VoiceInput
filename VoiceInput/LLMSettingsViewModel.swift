@@ -353,7 +353,7 @@ class LLMSettingsViewModel: ObservableObject {
     ) -> EffectiveLLMConfiguration {
         let resolvedPrompt = prompt.isEmpty ? LLMSettingsViewModel.defaultLLMPrompt : prompt
         var resolvedProvider = provider
-        var resolvedAPIKey = apiKey
+        let resolvedAPIKey = apiKey  // API key 不需要修改，使用 let
         var resolvedURL = url
         var resolvedModel = model
 

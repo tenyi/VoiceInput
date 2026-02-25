@@ -25,8 +25,8 @@ enum HotkeyOption: String, CaseIterable {
         switch self {
         case .leftCommand: return 0x37  // 55 - Left Command
         case .rightCommand: return 0x36 // 54 - Right Command
-        case .leftOption: return 0x3B   // 59 - Left Option
-        case .rightOption: return 0x3C  // 60 - Right Option
+        case .leftOption: return 0x3A   // 58 - Left Option (kVK_Option)
+        case .rightOption: return 0x3D  // 61 - Right Option (kVK_RightOption)
         case .fn: return 0x3F            // 63 - Fn
         }
     }

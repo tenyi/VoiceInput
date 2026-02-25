@@ -7,12 +7,28 @@ struct DictionaryItem: Identifiable, Codable, Equatable {
     var original: String
     var replacement: String
     var isEnabled: Bool
+    var isCaseSensitive: Bool
 
-    init(id: UUID = UUID(), original: String, replacement: String, isEnabled: Bool = true) {
+    init(id: UUID = UUID(), original: String, replacement: String, isEnabled: Bool = true, isCaseSensitive: Bool = false) {
         self.id = id
         self.original = original
         self.replacement = replacement
         self.isEnabled = isEnabled
+        self.isCaseSensitive = isCaseSensitive
+    }
+    
+    // 定義 CodingKeys 來協助解碼相容舊有資料
+    enum CodingKeys: String, CodingKey {
+        case id, original, replacement, isEnabled, isCaseSensitive
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.original = try container.decode(String.self, forKey: .original)
+        self.replacement = try container.decode(String.self, forKey: .replacement)
+        self.isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        self.isCaseSensitive = try container.decodeIfPresent(Bool.self, forKey: .isCaseSensitive) ?? false
     }
 }
 
@@ -30,8 +46,8 @@ class DictionaryManager: ObservableObject {
         loadItems()
     }
 
-    func addItem(original: String, replacement: String) {
-        let newItem = DictionaryItem(original: original, replacement: replacement)
+    func addItem(original: String, replacement: String, isCaseSensitive: Bool = false) {
+        let newItem = DictionaryItem(original: original, replacement: replacement, isCaseSensitive: isCaseSensitive)
         items.append(newItem)
         saveItems()
     }
@@ -61,16 +77,11 @@ class DictionaryManager: ObservableObject {
         let activeItems = items.filter { $0.isEnabled }.sorted { $0.original.count > $1.original.count }
 
         for item in activeItems {
-            // 使用 caseInsensitive 進行比對嗎？ 題目範例 cloud code -> Claude Code，看起來需要 case-insensitive 比較好，
-            // 但中文通常沒差。Swift replacingOccurrences 預設是 case-sensitive。
-            // 考慮到 voice input 出來的英文可能是全小寫或首字大寫，用 case-insensitive 比較好。
-            // 但 replacingOccurrences(of:with:options:) 如果用 .caseInsensitiveSearch，替換時會把找到的那段換成 replacement。
-            
-            // 簡單起見，先用 case-insensitive
+            let options: String.CompareOptions = item.isCaseSensitive ? [] : [.caseInsensitive]
              processedText = processedText.replacingOccurrences(
                 of: item.original,
                 with: item.replacement,
-                options: .caseInsensitive
+                options: options
             )
         }
         return processedText

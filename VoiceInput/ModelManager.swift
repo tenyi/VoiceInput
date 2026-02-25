@@ -40,9 +40,6 @@ class ModelManager: ObservableObject {
     /// 模型儲存目錄
     let modelsDirectory: URL
 
-    /// 公共模型目錄
-    let publicModelsDirectory: URL
-
     /// 當前選擇的模型路徑
     @AppStorage("whisperModelPath") var whisperModelPath: String = ""
 
@@ -56,9 +53,6 @@ class ModelManager: ObservableObject {
         let appSupport = fileSystem.applicationSupportDirectory ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let bundleID = Bundle.main.bundleIdentifier ?? "VoiceInput"
         modelsDirectory = appSupport.appendingPathComponent(bundleID).appendingPathComponent("Models")
-
-        // 公共模型目錄 (可選)
-        publicModelsDirectory = URL(fileURLWithPath: "/usr/local/share/VoiceInput/Models")
 
         // 載入已導入的模型列表
         loadModels()

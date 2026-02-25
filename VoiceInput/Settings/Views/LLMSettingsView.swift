@@ -40,19 +40,25 @@ struct LLMSettingsView: View {
         let config = llmSettings.resolveEffectiveConfiguration()
         let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "LLMTest")
 
-        LLMProcessingService.shared.process(
-            text: testInputText,
-            config: config,
-            logger: logger
-        ) { result in
-            DispatchQueue.main.async { [self] in
-                isTesting = false
-                switch result {
-                case .success(let correctedText):
-                    testOutput = correctedText
-                    testSucceeded = true
-                case .failure(let error):
-                    testError = error.localizedDescription
+        Task {
+            do {
+                let correctedText = try await LLMService.shared.correctText(
+                    text: testInputText,
+                    prompt: config.prompt,
+                    provider: config.provider,
+                    apiKey: config.apiKey,
+                    url: config.url,
+                    model: config.model
+                )
+                await MainActor.run {
+                    self.testOutput = correctedText
+                    self.testSucceeded = true
+                    self.isTesting = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.testError = error.localizedDescription
+                    self.isTesting = false
                 }
             }
         }
@@ -366,6 +372,16 @@ struct LLMSettingsView: View {
                 llmSettings.llmAPIKey = newAPIKey
                 // 自動選中新添加的 Provider
                 applySelectedCustomProvider(newProvider)
+            }
+        }
+        .onAppear {
+            if let customId = llmSettings.selectedCustomProviderId,
+               llmSettings.llmProvider == LLMProvider.custom.rawValue,
+               let customProvider = llmSettings.customProviders.first(where: { $0.id.uuidString == customId }) {
+                applySelectedCustomProvider(customProvider)
+            } else {
+                let currentProvider = LLMProvider(rawValue: llmSettings.llmProvider) ?? .openAI
+                applyBuiltInProvider(currentProvider)
             }
         }
     }

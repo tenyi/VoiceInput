@@ -31,6 +31,7 @@ struct VoiceInputApp: App {
 }
 
 /// App 代理人，負責處理應用程式生命週期事件
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     static let sharedViewModel = VoiceInputViewModel()
     static let sharedLLMSettingsViewModel = LLMSettingsViewModel()
@@ -115,6 +116,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 當應用程式即將關閉時
     func applicationWillTerminate(_ notification: Notification) {
+        // 確保所有的非同步設定寫入已送出
+        UserDefaults.standard.synchronize()
+        print("為避免 ggml-metal C++ 資源釋放當機，應用程式正以 _exit(0) 安全退出")
+
         // 繞過 whisper.cpp / ggml-metal 中的全域 C++ 物件解構過程
         // 以避免在一般 exit() 進入清理階段時發生 ggml_abort 當機
         _exit(0)

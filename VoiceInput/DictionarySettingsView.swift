@@ -5,6 +5,7 @@ struct DictionarySettingsView: View {
     @StateObject private var dictionaryManager = DictionaryManager.shared
     @State private var originalText: String = ""
     @State private var replacementText: String = ""
+    @State private var isCaseSensitive: Bool = false
     @State private var editingItem: DictionaryItem?
     
     var body: some View {
@@ -24,6 +25,9 @@ struct DictionarySettingsView: View {
                         
                         TextField("置換後文字 (例如：Claude Code)", text: $replacementText)
                             .textFieldStyle(.roundedBorder)
+                        Toggle("Aa", isOn: $isCaseSensitive)
+                            .toggleStyle(.button)
+                            .help("區分大小寫")
                             
                         Button(action: addOrUpdateItem) {
                             Image(systemName: editingItem == nil ? "plus.circle.fill" : "checkmark.circle.fill")
@@ -96,6 +100,16 @@ struct DictionarySettingsView: View {
                                 .fontWeight(.medium)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
+                            if item.isCaseSensitive {
+                                Text("Aa")
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.2))
+                                    .cornerRadius(4)
+                            }
+                            
                             Spacer()
                             
                             // Edit Button
@@ -134,17 +148,19 @@ struct DictionarySettingsView: View {
             var updatedItem = editingItem
             updatedItem.original = originalText
             updatedItem.replacement = replacementText
+            updatedItem.isCaseSensitive = isCaseSensitive
             dictionaryManager.updateItem(updatedItem)
             cancelEdit()
         } else {
             // Support comma separated values for adding multiple items at once (from screenshot hint)
             let originals = originalText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             for original in originals where !original.isEmpty {
-                dictionaryManager.addItem(original: original, replacement: replacementText)
+                dictionaryManager.addItem(original: original, replacement: replacementText, isCaseSensitive: isCaseSensitive)
             }
             
             originalText = ""
             replacementText = ""
+            isCaseSensitive = false
         }
     }
     
@@ -152,11 +168,13 @@ struct DictionarySettingsView: View {
         editingItem = item
         originalText = item.original
         replacementText = item.replacement
+        isCaseSensitive = item.isCaseSensitive
     }
     
     private func cancelEdit() {
         editingItem = nil
         originalText = ""
         replacementText = ""
+        isCaseSensitive = false
     }
 }
