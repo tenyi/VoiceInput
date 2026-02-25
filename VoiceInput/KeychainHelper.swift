@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os
 
 protocol KeychainProtocol {
     func save(_ value: String, service: String, account: String)
@@ -10,29 +11,39 @@ protocol KeychainProtocol {
 /// 簡單的 Keychain 封裝工具
 class KeychainHelper: KeychainProtocol {
     static let shared = KeychainHelper()
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "KeychainHelper")
     
     private init() {}
     
-    /// 儲存字串到 Keychain
+    /// 儲存字串到 Keychain（add-or-update 模式，避免 errSecDuplicateItem 靜默失敗）
     func save(_ value: String, service: String, account: String) {
         guard let data = value.data(using: .utf8) else { return }
         
-        // 建立查詢用字典 (不可包含 kSecValueData)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
         
-        // 先嘗試刪除舊的
-        SecItemDelete(query as CFDictionary)
+        // 先嘗試更新已存在的項目
+        let updateAttribs: [String: Any] = [kSecValueData as String: data]
+        let updateStatus = SecItemUpdate(query as CFDictionary, updateAttribs as CFDictionary)
         
-        // 建立新增用的字典（必須加上值）
-        var addQuery = query
-        addQuery[kSecValueData as String] = data
+        if updateStatus == errSecSuccess {
+            return
+        }
         
-        // 新增
-        SecItemAdd(addQuery as CFDictionary, nil)
+        if updateStatus == errSecItemNotFound {
+            // 項目不存在，新增
+            var addQuery = query
+            addQuery[kSecValueData as String] = data
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            if addStatus != errSecSuccess {
+                logger.error("Keychain add 失敗，service=\(service), account=\(account), status=\(addStatus)")
+            }
+        } else {
+            logger.error("Keychain update 失敗，service=\(service), account=\(account), status=\(updateStatus)")
+        }
     }
     
     /// 從 Keychain 讀取字串

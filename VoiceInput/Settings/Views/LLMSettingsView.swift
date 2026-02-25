@@ -38,7 +38,6 @@ struct LLMSettingsView: View {
         testSucceeded = false
 
         let config = llmSettings.resolveEffectiveConfiguration()
-        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "LLMTest")
 
         Task {
             do {

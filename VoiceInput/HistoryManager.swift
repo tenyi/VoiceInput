@@ -21,7 +21,7 @@ class HistoryManager: ObservableObject {
     nonisolated private let fileSystem: FileSystemProtocol
     
     /// 轉錄歷史紀錄檔案儲存路徑 (Application Support/VoiceInput/transcription_history.json)
-    nonisolated private var transcriptionHistoryFileURL: URL {
+    private var transcriptionHistoryFileURL: URL {
         let appSupport = fileSystem.applicationSupportDirectory ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let dir = appSupport.appendingPathComponent("VoiceInput", isDirectory: true)
         return dir.appendingPathComponent("transcription_history.json")

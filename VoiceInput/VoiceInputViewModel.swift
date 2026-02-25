@@ -69,7 +69,6 @@ class VoiceInputViewModel: ObservableObject {
     /// 權限狀態
     @Published var permissionGranted = false
     /// 錄音開始時間（用於防抖，避免極短暫的錄音）
-    /// 錄音開始時間（用於防抖，避免極短暫的錄音）
     private var recordingStartTime: Date?
 
     /// 音訊引擎 (依賴注入)
@@ -468,21 +467,25 @@ class VoiceInputViewModel: ObservableObject {
         // 自動插入文字到當前應用程式
         if autoInsertText && !transcribedText.isEmpty && transcribedText != "等待輸入..." {
             // 檢查輔助功能權限
+            // 注意：PermissionManager completion 不保證在主執行緒回呼，
+            // 因此用 Task @MainActor 確保後續存取 @MainActor 屬性的安全性。
             permissionManager.requestPermissionIfNeeded(.accessibility) { [weak self] granted in
-                guard let self = self else { return }
-                if granted {
-                    self.insertText()
-                }
-
-                // 如果有 LLM 錯誤，先顯示錯誤訊息一段時間後再隱藏
-                if self.lastLLMError != nil {
-                    // 設定狀態為顯示錯誤（保持懸浮視窗可見）
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                        self?.lastLLMError = nil // 清除錯誤訊息
-                        self?.hideWindow()
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if granted {
+                        self.insertText()
                     }
-                } else {
-                    self.hideWindow()
+
+                    // 如果有 LLM 錯誤，先顯示錯誤訊息一段時間後再隱藏
+                    if self.lastLLMError != nil {
+                        // 設定狀態為顯示錯誤（保持懸浮視窗可見）
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                            self?.lastLLMError = nil // 清除錯誤訊息
+                            self?.hideWindow()
+                        }
+                    } else {
+                        self.hideWindow()
+                    }
                 }
             }
         } else {

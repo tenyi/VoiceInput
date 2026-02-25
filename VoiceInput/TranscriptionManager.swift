@@ -133,6 +133,8 @@ class TranscriptionManager: ObservableObject {
     /// 停止轉錄
     func stopTranscription() {
         transcriptionService.stop()
+        // 重置轉錄狀態，確保下次錄音前狀態正確
+        isTranscribing = false
         logger.info("停止轉錄")
     }
 
