@@ -207,7 +207,10 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
         captureSession?.stopRunning()
         captureSession = nil
         audioDataOutput = nil
-        bufferCallback = nil
+        
+        captureQueue.async { [weak self] in
+            self?.bufferCallback = nil
+        }
         
         DispatchQueue.main.async {
             self.isRecording = false

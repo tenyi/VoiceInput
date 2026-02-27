@@ -232,7 +232,16 @@ class LLMService {
     ) async throws -> String {
         var baseURL = url.isEmpty ? "http://localhost:11434" : normalizeURL(url)
         if baseURL.hasSuffix("/") { baseURL.removeLast() }
-        let endpoint = baseURL.hasSuffix("/v1/chat/completions") ? baseURL : "\(baseURL)/v1/chat/completions"
+        
+        // 確保不會重複拼接 v1 或 chat/completions
+        let endpoint: String
+        if baseURL.hasSuffix("/v1/chat/completions") {
+            endpoint = baseURL
+        } else if baseURL.hasSuffix("/v1") {
+            endpoint = "\(baseURL)/chat/completions"
+        } else {
+            endpoint = "\(baseURL)/v1/chat/completions"
+        }
         guard let apiURL = URL(string: endpoint) else { throw LLMServiceError.invalidConfiguration }
 
         let modelName = model.isEmpty ? "llama3" : model

@@ -64,6 +64,8 @@ class InputSimulator: InputSimulatorProtocol {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         
+        let initialChangeCount = pasteboard.changeCount
+        
         // 模擬 Cmd+V 組合鍵
         let source = CGEventSource(stateID: .hidSystemState)
         
@@ -86,9 +88,9 @@ class InputSimulator: InputSimulatorProtocol {
         // 延遲一小段時間後恢復剪貼簿內容，確保目標應用程式有足夠時間讀取 Cmd+V
         // 通常 0.2 秒已足夠讓 UI 事件循環處理完貼上動作
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            // 檢查是否使用者在這 0.2 秒內又複製了新內容，若使用者複製了新內容，就不覆蓋
-            let currentContent = pasteboard.string(forType: .string)
-            if currentContent == text {
+            // 檢查使用者是否在這 0.2 秒內又複製了新內容（透過 changeCount 判斷）
+            // 如果 changeCount 未增加，代表剪貼簿仍是我們塞入的轉寫文字，才執行還原
+            if pasteboard.changeCount == initialChangeCount {
                 // 將原始剪貼簿內容無條件還原
                 pasteboard.clearContents()
                 if !oldItemSnapshots.isEmpty {
