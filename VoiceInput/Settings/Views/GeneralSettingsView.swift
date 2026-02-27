@@ -14,7 +14,7 @@ struct GeneralSettingsView: View {
             // 權限狀態區塊
             Section {
                 PermissionStatusRow(
-                    name: "麥克風",
+                    name: String(localized: "general.permission.microphone"),
                     isGranted: viewModel.permissionManager.microphoneStatus == .authorized
                 )
                 .onTapGesture {
@@ -23,7 +23,7 @@ struct GeneralSettingsView: View {
                 }
 
                 PermissionStatusRow(
-                    name: "語音辨識",
+                    name: String(localized: "general.permission.speechRecognition"),
                     isGranted: viewModel.permissionManager.speechRecognitionStatus == .authorized
                 )
                 .onTapGesture {
@@ -32,7 +32,7 @@ struct GeneralSettingsView: View {
                 }
 
                 PermissionStatusRow(
-                    name: "輔助功能",
+                    name: String(localized: "general.permission.accessibility"),
                     isGranted: viewModel.permissionManager.accessibilityStatus == .authorized
                 )
                 .onTapGesture {
@@ -40,23 +40,23 @@ struct GeneralSettingsView: View {
                     viewModel.permissionManager.requestPermissionIfNeeded(.accessibility) { _ in }
                 }
 
-                Button("請求權限") {
+                Button(String(localized: "general.permission.requestAll")) {
                     // 重置權限請求標記，這樣才會再次彈出系統對話框
                     viewModel.permissionManager.resetPermissionRequestFlag()
                     // 請求權限
                     viewModel.permissionManager.requestAllPermissionsIfNeeded { _ in }
                 }
             } header: {
-                Text("權限狀態")
+                Text(String(localized: "general.section.permissions"))
             } footer: {
-                Text("點擊任一項目可查看或設定權限")
+                Text(String(localized: "general.permission.footer"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             // 音訊輸入設備選擇
             Section {
-                Picker("輸入設備", selection: Binding(
+                Picker(String(localized: "general.audioInput.picker"), selection: Binding(
                     get: { viewModel.selectedInputDeviceID },
                     set: { viewModel.selectedInputDeviceID = $0 }
                 )) {
@@ -72,22 +72,22 @@ struct GeneralSettingsView: View {
                 Button(action: {
                     viewModel.refreshAudioDevices()
                 }) {
-                    Label("重新整理設備", systemImage: "arrow.clockwise")
+                    Label(String(localized: "general.audioInput.refresh"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.link)
             } header: {
-                Text("音訊輸入")
+                Text(String(localized: "general.section.audioInput"))
             } footer: {
-                Text("選擇要用於語音輸入的麥克風設備")
+                Text(String(localized: "general.audioInput.footer"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             Section {
-                Toggle("轉錄完成後自動插入文字", isOn: $viewModel.autoInsertText)
+                Toggle(String(localized: "general.autoInsert"), isOn: $viewModel.autoInsertText)
                     .toggleStyle(.checkbox)
 
-                Picker("錄音快捷鍵", selection: $selectedHotkey) {
+                Picker(String(localized: "general.hotkey.picker"), selection: $selectedHotkey) {
                     ForEach(HotkeyOption.allCases, id: \.self) { option in
                         Text(option.displayName).tag(option)
                     }
@@ -98,7 +98,7 @@ struct GeneralSettingsView: View {
                 }
 
                 // T5-1：觸發模式選擇（即時生效）
-                Picker("觸發模式", selection: $selectedTriggerMode) {
+                Picker(String(localized: "general.triggerMode.picker"), selection: $selectedTriggerMode) {
                     ForEach(RecordingTriggerMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
@@ -108,14 +108,14 @@ struct GeneralSettingsView: View {
                     viewModel.updateRecordingTriggerMode(newValue)
                 }
             } header: {
-                Text("一般設定")
+                Text(String(localized: "general.section.generalSettings"))
             } footer: {
                 if selectedTriggerMode == .pressAndHold {
-                    Text("按住快捷鍵開始錄音，放開即送出轉寫結果。")
+                    Text(String(localized: "general.triggerMode.pressAndHold.footer"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
-                    Text("按一次開始錄音，再按一次停止並將結果送出。")
+                    Text(String(localized: "general.triggerMode.toggle.footer"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

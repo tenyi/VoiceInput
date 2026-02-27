@@ -7,7 +7,7 @@ struct ModelSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Picker("辨識引擎", selection: Binding(
+                Picker(String(localized: "model.engine.picker"), selection: Binding(
                     get: { viewModel.currentSpeechEngine },
                     set: { viewModel.selectedSpeechEngine = $0.rawValue }
                 )) {
@@ -17,14 +17,14 @@ struct ModelSettingsView: View {
                 }
                 .pickerStyle(.segmented)
             } header: {
-                Text("語音辨識引擎")
+                Text(String(localized: "model.section.engine"))
             } footer: {
                 if viewModel.currentSpeechEngine == .apple {
-                    Text("使用 macOS 內建的 SFSpeechRecognizer，無需下載模型，但需連網。")
+                    Text(String(localized: "model.engine.apple.footer"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
-                    Text("使用本機 Whisper 模型，需下載 .bin 模型檔案。")
+                    Text(String(localized: "model.engine.whisper.footer"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -37,7 +37,7 @@ struct ModelSettingsView: View {
                         VStack(spacing: 12) {
                             // 進度條
                             ProgressView(value: modelManager.modelImportProgress) {
-                                Text("正在匯入模型...")
+                                Text(String(localized: "model.import.importing"))
                                     .font(.headline)
                             }
                             .progressViewStyle(.linear)
@@ -62,7 +62,7 @@ struct ModelSettingsView: View {
                         }
                         .padding(.vertical, 8)
                     } header: {
-                        Text("匯入進度")
+                        Text(String(localized: "model.section.importProgress"))
                     }
                 }
 
@@ -73,7 +73,7 @@ struct ModelSettingsView: View {
                             .foregroundColor(.red)
                             .font(.callout)
                     } header: {
-                        Text("錯誤")
+                        Text(String(localized: "model.section.error"))
                     }
                 }
 
@@ -84,9 +84,9 @@ struct ModelSettingsView: View {
                             Image(systemName: "cube.box")
                                 .font(.system(size: 32))
                                 .foregroundColor(.secondary)
-                            Text("尚未導入任何模型")
+                            Text(String(localized: "model.import.empty"))
                                 .foregroundColor(.secondary)
-                            Text("點擊下方按鈕匯入 Whisper 模型")
+                            Text(String(localized: "model.import.hint"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -111,22 +111,22 @@ struct ModelSettingsView: View {
                     }) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
-                            Text("匯入模型...")
+                            Text(String(localized: "model.import.button"))
                         }
                     }
                     .disabled(modelManager.isImportingModel)
                 } header: {
                     HStack {
-                        Text("已導入的模型")
+                        Text(String(localized: "model.section.importedModels"))
                         Spacer()
                         if !modelManager.importedModels.isEmpty {
-                            Text("\(modelManager.importedModels.count) 個")
+                            Text(String(format: String(localized: "model.import.count"), modelManager.importedModels.count))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
                 } footer: {
-                    Text("點擊模型名稱選擇使用，點擊刪除圖示移除模型")
+                    Text(String(localized: "model.import.footer"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -193,7 +193,7 @@ struct ModelRowView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
-                        Text("檔案不存在")
+                        Text(String(localized: "model.row.fileNotFound"))
                             .font(.caption)
                             .foregroundColor(.orange)
                     }
@@ -215,7 +215,7 @@ struct ModelRowView: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
-            .help("在 Finder 中顯示")
+            .help(String(localized: "model.row.showInFinder"))
 
             // 刪除按鈕
             Button(action: onDelete) {
@@ -223,7 +223,7 @@ struct ModelRowView: View {
                     .foregroundColor(.red)
             }
             .buttonStyle(.plain)
-            .help("刪除模型")
+            .help(String(localized: "model.row.delete"))
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())

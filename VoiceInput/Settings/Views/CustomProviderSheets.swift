@@ -28,13 +28,13 @@ struct AddCustomProviderSheet: View {
     var body: some View {
         NavigationView {
             Form {
-                Section("Provider 資訊") {
-                    TextField("顯示名稱", text: $name)
+                Section(String(localized: "llm.addProvider.section.info")) {
+                    TextField(String(localized: "llm.addProvider.name"), text: $name)
                         .textFieldStyle(.roundedBorder)
 
                     // 快速範本選擇
-                    Picker("快速範本", selection: $selectedTemplate) {
-                        Text("選擇範本...").tag("")
+                    Picker(String(localized: "llm.addProvider.template"), selection: $selectedTemplate) {
+                        Text(String(localized: "llm.addProvider.template.placeholder")).tag("")
                         ForEach(providerTemplates, id: \.name) { template in
                             Text(template.name).tag(template.name)
                         }
@@ -51,18 +51,18 @@ struct AddCustomProviderSheet: View {
                     }
                 }
 
-                Section("API 設定") {
-                    TextField("API URL", text: $apiURL)
+                Section(String(localized: "llm.addProvider.section.api")) {
+                    TextField(String(localized: "llm.api.apiUrl"), text: $apiURL)
                         .textFieldStyle(.roundedBorder)
 
-                    SecureField("API Key", text: $apiKey)
+                    SecureField(String(localized: "llm.api.apiKey"), text: $apiKey)
                         .textFieldStyle(.roundedBorder)
 
-                    TextField("模型名稱", text: $model)
+                    TextField(String(localized: "llm.api.modelName"), text: $model)
                         .textFieldStyle(.roundedBorder)
                 }
 
-                Section("提示詞（可選）") {
+                Section(String(localized: "llm.addProvider.section.prompt")) {
                     TextEditor(text: $prompt)
                         .frame(height: 60)
                         .font(.system(.body, design: .monospaced))
@@ -70,15 +70,15 @@ struct AddCustomProviderSheet: View {
 
                 Section {
                     Button(action: addProvider) {
-                        Text("新增 Provider")
+                        Text(String(localized: "llm.addProvider.addButton"))
                     }
                     .disabled(!isValid)
                 }
             }
-            .navigationTitle("新增自訂 Provider")
+            .navigationTitle(String(localized: "llm.addProvider.title"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
+                    Button(String(localized: "llm.addProvider.cancel")) {
                         dismiss()
                     }
                 }
@@ -120,7 +120,7 @@ struct ManageCustomProvidersSheet: View {
         NavigationView {
             List {
                 if llmSettings.customProviders.isEmpty {
-                    Text("尚未新增任何自訂 Provider")
+                    Text(String(localized: "llm.manageProviders.empty"))
                         .foregroundColor(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding()
@@ -154,10 +154,10 @@ struct ManageCustomProvidersSheet: View {
                     }
                 }
             }
-            .navigationTitle("管理自訂 Provider")
+            .navigationTitle(String(localized: "llm.manageProviders.title"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("關閉") {
+                    Button(String(localized: "llm.manageProviders.close")) {
                         dismiss()
                     }
                 }
@@ -167,18 +167,18 @@ struct ManageCustomProvidersSheet: View {
                         dismiss()
                         onAdd()
                     }) {
-                        Label("新增", systemImage: "plus")
+                        Label(String(localized: "llm.manageProviders.add"), systemImage: "plus")
                     }
                 }
             }
-            .alert("刪除 Provider", isPresented: Binding(
+            .alert(String(localized: "llm.manageProviders.deleteTitle"), isPresented: Binding(
                 get: { providerToDelete != nil },
                 set: { if !$0 { providerToDelete = nil } }
             )) {
-                Button("取消", role: .cancel) {
+                Button(String(localized: "llm.manageProviders.deleteCancel"), role: .cancel) {
                     providerToDelete = nil
                 }
-                Button("刪除", role: .destructive) {
+                Button(String(localized: "llm.manageProviders.deleteConfirm"), role: .destructive) {
                     if let provider = providerToDelete {
                         onDelete(provider)
                         llmSettings.removeCustomProvider(provider)
@@ -187,7 +187,7 @@ struct ManageCustomProvidersSheet: View {
                 }
             } message: {
                 if let provider = providerToDelete {
-                    Text("確定要刪除「\(provider.displayName)」嗎？此操作無法復原。")
+                    Text(String(format: String(localized: "llm.manageProviders.deleteMessage"), provider.displayName))
                 }
             }
         }

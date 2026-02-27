@@ -88,19 +88,19 @@ struct LLMSettingsView: View {
         Form {
             // 啟用開關
             Section {
-                Toggle("啟用 LLM 自動修正", isOn: $llmSettings.llmEnabled)
+                Toggle(String(localized: "llm.enable.toggle"), isOn: $llmSettings.llmEnabled)
                     .toggleStyle(.checkbox)
             } header: {
-                Text("LLM 修正")
+                Text(String(localized: "llm.section.enable"))
             } footer: {
-                Text("轉錄完成後自動使用 LLM 修正文字內容")
+                Text(String(localized: "llm.enable.footer"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             // Provider 選擇
             Section {
-                Picker("服務提供者", selection: Binding(
+                Picker(String(localized: "llm.provider.picker"), selection: Binding(
                     get: {
                         // 如果有選擇自訂 Provider，返回其 ID；否則返回內建 Provider 名稱
                         if let custom = selectedCustomProvider {
@@ -120,14 +120,14 @@ struct LLMSettingsView: View {
                     }
                 )) {
                     // 內建 Provider
-                    Section("內建") {
+                    Section(String(localized: "llm.provider.builtin")) {
                         ForEach(LLMProvider.allCases, id: \.self) { provider in
                             Text(provider.rawValue).tag(provider.rawValue)
                         }
                     }
                     // 自訂 Provider
                     if !llmSettings.customProviders.isEmpty {
-                        Section("自訂") {
+                        Section(String(localized: "llm.provider.custom")) {
                             ForEach(llmSettings.customProviders) { provider in
                                 Text(provider.displayName).tag(provider.id.uuidString)
                             }
@@ -138,13 +138,13 @@ struct LLMSettingsView: View {
 
                 // 管理自訂 Provider 按鈕
                 Button(action: { showingProviderManager = true }) {
-                    Label("管理自訂 Provider", systemImage: "folder.circle")
+                    Label(String(localized: "llm.provider.manage"), systemImage: "folder.circle")
                 }
                 .buttonStyle(.link)
             } header: {
-                Text("Provider")
+                Text(String(localized: "llm.section.provider"))
             } footer: {
-                Text("選擇 Provider 後可在此設定 API Key、模型等參數")
+                Text(String(localized: "llm.provider.footer"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -157,7 +157,7 @@ struct LLMSettingsView: View {
                     Group {
                         Text("Provider: \(custom.name)")
                             .font(.headline)
-                        TextField("API URL", text: Binding(
+                        TextField(String(localized: "llm.api.apiUrl"), text: Binding(
                             get: { custom.url },
                             set: { newValue in
                                 var updated = custom
@@ -169,10 +169,10 @@ struct LLMSettingsView: View {
                         ))
                         .textFieldStyle(.roundedBorder)
 
-                        SecureField("API Key", text: $llmSettings.llmAPIKey)
+                        SecureField(String(localized: "llm.api.apiKey"), text: $llmSettings.llmAPIKey)
                         .textFieldStyle(.roundedBorder)
 
-                        TextField("模型名稱", text: Binding(
+                        TextField(String(localized: "llm.api.modelName"), text: Binding(
                             get: { custom.model },
                             set: { newValue in
                                 var updated = custom
@@ -190,24 +190,24 @@ struct LLMSettingsView: View {
                         llmSettings.removeCustomProvider(custom)
                         applyBuiltInProvider(.openAI)
                     }) {
-                        Label("刪除此 Provider", systemImage: "trash")
+                        Label(String(localized: "llm.provider.delete"), systemImage: "trash")
                     }
                     .buttonStyle(.link)
                 } else {
                     // 內建 Provider 的設定
                     // 模型名稱 (所有 provider 都需要)
-                    TextField("模型名稱", text: $llmSettings.llmModel)
+                    TextField(String(localized: "llm.api.modelName"), text: $llmSettings.llmModel)
                         .textFieldStyle(.roundedBorder)
 
                     // OpenAI / Anthropic 需要 API Key
                     if selectedProvider == .openAI || selectedProvider == .anthropic {
-                        SecureField("API Key", text: $llmSettings.llmAPIKey)
+                        SecureField(String(localized: "llm.api.apiKey"), text: $llmSettings.llmAPIKey)
                             .textFieldStyle(.roundedBorder)
                     }
 
                     // Ollama 需要 URL
                     if selectedProvider == .ollama {
-                        TextField("API URL", text: $llmSettings.llmURL)
+                        TextField(String(localized: "llm.api.apiUrl"), text: $llmSettings.llmURL)
                             .textFieldStyle(.roundedBorder)
                             .onAppear {
                                 if llmSettings.llmURL.isEmpty {
@@ -218,15 +218,17 @@ struct LLMSettingsView: View {
 
                     // 自訂 API 需要 URL 和 API Key
                     if selectedProvider == .custom {
-                        TextField("API URL", text: $llmSettings.llmURL)
+                        TextField(String(localized: "llm.api.apiUrl"), text: $llmSettings.llmURL)
                             .textFieldStyle(.roundedBorder)
 
-                        SecureField("API Key (可選)", text: $llmSettings.llmAPIKey)
+                        SecureField(String(localized: "llm.api.apiKeyOptional"), text: $llmSettings.llmAPIKey)
                             .textFieldStyle(.roundedBorder)
                     }
                 }
             } header: {
-                Text(selectedCustomProvider != nil ? "自訂 Provider 設定" : "API 設定")
+                Text(selectedCustomProvider != nil
+                     ? String(localized: "llm.section.customProviderSettings")
+                     : String(localized: "llm.section.apiSettings"))
             }
 
             // Prompt 設定
@@ -241,7 +243,7 @@ struct LLMSettingsView: View {
                     }
 
                 HStack {
-                    Button("重置為預設") {
+                    Button(String(localized: "llm.prompt.resetDefault")) {
                         promptText = LLMSettingsViewModel.defaultLLMPrompt
                         llmSettings.llmPrompt = ""
                     }
@@ -250,19 +252,19 @@ struct LLMSettingsView: View {
                     Spacer()
 
                     if promptText != LLMSettingsViewModel.defaultLLMPrompt && !promptText.isEmpty {
-                        Text("已自訂")
+                        Text(String(localized: "llm.prompt.customized"))
                             .font(.caption)
                             .foregroundColor(.green)
                     } else {
-                        Text("使用預設")
+                        Text(String(localized: "llm.prompt.useDefault"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
             } header: {
-                Text("自訂 Prompt")
+                Text(String(localized: "llm.section.prompt"))
             } footer: {
-                Text("編輯提示詞來改變 LLM 修正文字的方式")
+                Text(String(localized: "llm.prompt.footer"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -276,10 +278,10 @@ struct LLMSettingsView: View {
                             if isTesting {
                                 ProgressView()
                                     .scaleEffect(0.8)
-                                Text("測試中...")
+                                Text(String(localized: "llm.test.testing"))
                             } else {
                                 Image(systemName: "play.fill")
-                                Text("測試 LLM 設定")
+                                Text(String(localized: "llm.test.button"))
                             }
                         }
                         .frame(maxWidth: .infinity)
@@ -291,7 +293,7 @@ struct LLMSettingsView: View {
                     if !testInputText.isEmpty || !testOutput.isEmpty || !testError.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             // 輸入文字
-                            Text("輸入文字：")
+                            Text(String(localized: "llm.test.input"))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             Text(testInputText)
@@ -303,7 +305,7 @@ struct LLMSettingsView: View {
 
                             // 輸出文字
                             if !testOutput.isEmpty {
-                                Text("輸出文字：")
+                                Text(String(localized: "llm.test.output"))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Text(testOutput)
@@ -316,7 +318,7 @@ struct LLMSettingsView: View {
 
                             // 錯誤訊息
                             if !testError.isEmpty {
-                                Text("錯誤：")
+                                Text(String(localized: "llm.test.error"))
                                     .font(.caption)
                                     .foregroundColor(.red)
                                 Text(testError)
@@ -330,9 +332,9 @@ struct LLMSettingsView: View {
                     }
                 }
             } header: {
-                Text("測試 LLM")
+                Text(String(localized: "llm.section.test"))
             } footer: {
-                Text("點擊測試按鈕驗證 LLM 設定是否正確")
+                Text(String(localized: "llm.test.footer"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

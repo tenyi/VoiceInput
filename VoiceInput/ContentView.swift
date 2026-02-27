@@ -15,16 +15,22 @@ struct ContentView: View {
     @State private var selectedTab: MainTab = .main
 
     private enum MainTab: String, CaseIterable, Identifiable {
-        case main = "主控"
-        case history = "歷史"
+        case main
+        case history
         var id: String { rawValue }
+        var displayName: String {
+            switch self {
+            case .main: return String(localized: "content.tab.main")
+            case .history: return String(localized: "content.tab.history")
+            }
+        }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Picker("分頁", selection: $selectedTab) {
-                Text(MainTab.main.rawValue).tag(MainTab.main)
-                Text(MainTab.history.rawValue).tag(MainTab.history)
+                Text(MainTab.main.displayName).tag(MainTab.main)
+                Text(MainTab.history.displayName).tag(MainTab.history)
             }
             .pickerStyle(.segmented)
             .padding([.top, .horizontal])
@@ -88,26 +94,28 @@ struct ContentView: View {
             VStack(alignment: .leading) {
                 Text("VoiceInput")
                     .font(.system(size: 18, weight: .bold))
-                Text(viewModel.isRecording ? "錄音中..." : "準備就緒")
+                Text(viewModel.isRecording
+                     ? String(localized: "content.status.recording")
+                     : String(localized: "content.status.ready"))
                     .font(.caption)
                     .foregroundColor(viewModel.isRecording ? .red : .secondary)
             }
             Spacer()
-            
+
             Toggle("", isOn: $viewModel.autoInsertText)
                 .toggleStyle(.switch)
                 .labelsHidden()
-                .help("轉錄完成後自動插入文字")
+                .help(String(localized: "content.autoInsert.help"))
         }
         .padding()
     }
     
     private var transcriptionSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("轉錄設定", systemImage: "text.bubble")
+            Label(String(localized: "content.section.transcription"), systemImage: "text.bubble")
                 .font(.headline)
-            
-            Picker("辨識語言", selection: $viewModel.selectedLanguage) {
+
+            Picker(String(localized: "transcription.language.picker"), selection: $viewModel.selectedLanguage) {
                 ForEach(viewModel.availableLanguages.keys.sorted(), id: \.self) { key in
                     Text(viewModel.availableLanguages[key] ?? key).tag(key)
                 }
@@ -118,14 +126,16 @@ struct ContentView: View {
     
     private var modelSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Whisper 模型", systemImage: "cpu")
+            Label(String(localized: "content.section.model"), systemImage: "cpu")
                 .font(.headline)
-            
-            Text(modelManager.whisperModelPath.isEmpty ? "未選擇模型" : URL(fileURLWithPath: modelManager.whisperModelPath).lastPathComponent)
+
+            Text(modelManager.whisperModelPath.isEmpty
+                 ? String(localized: "content.model.noModel")
+                 : URL(fileURLWithPath: modelManager.whisperModelPath).lastPathComponent)
                 .font(.system(.body, design: .monospaced))
                 .foregroundColor(.secondary)
-            
-            Text("留空則預設使用 Apple 系統語音辨識")
+
+            Text(String(localized: "content.model.defaultHint"))
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -133,11 +143,11 @@ struct ContentView: View {
     
     private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("快捷鍵", systemImage: "keyboard")
+            Label(String(localized: "content.section.hotkey"), systemImage: "keyboard")
                 .font(.headline)
 
             HStack {
-                Text("錄音快捷鍵:")
+                Text(String(localized: "content.hotkey.label"))
                 Spacer()
                 if let option = HotkeyOption(rawValue: viewModel.selectedHotkey) {
                     Text(option.displayName)
@@ -152,7 +162,7 @@ struct ContentView: View {
     
     private var transcriptionPreview: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("最近轉錄", systemImage: "clock.arrow.circlepath")
+            Label(String(localized: "content.section.recent"), systemImage: "clock.arrow.circlepath")
                 .font(.headline)
             
             Text(viewModel.transcribedText)
@@ -166,19 +176,21 @@ struct ContentView: View {
     
     private var footerView: some View {
         HStack {
-            Button("關於") {
+            Button(String(localized: "content.button.about")) {
                 showAbout()
             }
             .buttonStyle(.link)
-            
+
             Spacer()
-            
+
             Button(action: {
                 viewModel.toggleRecording()
             }) {
                 HStack {
                     Image(systemName: viewModel.isRecording ? "stop.fill" : "mic.fill")
-                    Text(viewModel.isRecording ? "停止錄音" : "開始錄音")
+                    Text(viewModel.isRecording
+                         ? String(localized: "content.button.stopRecording")
+                         : String(localized: "content.button.startRecording"))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -194,7 +206,7 @@ struct ContentView: View {
     private var historyView: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("最近 10 筆輸入")
+                Text(String(localized: "content.historyView.title"))
                     .font(.headline)
                 Spacer()
             }
@@ -207,7 +219,7 @@ struct ContentView: View {
                     Image(systemName: "tray")
                         .font(.title2)
                         .foregroundColor(.secondary)
-                    Text("目前沒有歷史輸入")
+                    Text(String(localized: "content.historyView.empty"))
                         .foregroundColor(.secondary)
                         .font(.subheadline)
                 }
@@ -237,7 +249,7 @@ struct ContentView: View {
                 Button {
                     historyManager.copyHistoryText(item.text)
                 } label: {
-                    Label("複製", systemImage: "doc.on.doc")
+                    Label(String(localized: "content.history.copy"), systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
 
@@ -248,7 +260,7 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("刪除此筆紀錄")
+                .help(String(localized: "content.history.delete.help"))
             }
 
             Text(item.text)

@@ -1,0 +1,170 @@
+/* Localizable.strings (简体中文 zh-Hans) - VoiceInput */
+
+/* MARK: - SettingsView */
+"settings.tab.general" = "通用";
+"settings.tab.transcription" = "转录";
+"settings.tab.model" = "模型";
+"settings.tab.llm" = "LLM";
+"settings.tab.dictionary" = "词典";
+"settings.tab.history" = "历史";
+
+/* MARK: - GeneralSettingsView */
+"general.section.permissions" = "权限状态";
+"general.permission.microphone" = "麦克风";
+"general.permission.speechRecognition" = "语音识别";
+"general.permission.accessibility" = "辅助功能";
+"general.permission.requestAll" = "请求权限";
+"general.permission.footer" = "点击任意项目可查看或设置权限";
+
+"general.section.audioInput" = "音频输入";
+"general.audioInput.picker" = "输入设备";
+"general.audioInput.refresh" = "刷新设备";
+"general.audioInput.footer" = "选择用于语音输入的麦克风设备";
+
+"general.section.generalSettings" = "通用设置";
+"general.autoInsert" = "转录完成后自动插入文字";
+"general.hotkey.picker" = "录音快捷键";
+"general.triggerMode.picker" = "触发模式";
+"general.triggerMode.pressAndHold.footer" = "按住快捷键开始录音，松开即提交转写结果。";
+"general.triggerMode.toggle.footer" = "按一次开始录音，再按一次停止并提交结果。";
+
+/* MARK: - TranscriptionSettingsView */
+"transcription.section.language" = "语言设置";
+"transcription.language.picker" = "识别语言";
+
+/* MARK: - ModelSettingsView */
+"model.section.engine" = "语音识别引擎";
+"model.engine.picker" = "识别引擎";
+"model.engine.apple.footer" = "使用 macOS 内置的 SFSpeechRecognizer，无需下载模型，但需联网。";
+"model.engine.whisper.footer" = "使用本地 Whisper 模型，需下载 .bin 模型文件。";
+
+"model.section.importProgress" = "导入进度";
+"model.import.importing" = "正在导入模型...";
+
+"model.section.error" = "错误";
+
+"model.section.importedModels" = "已导入的模型";
+"model.import.empty" = "尚未导入任何模型";
+"model.import.hint" = "点击下方按钮导入 Whisper 模型";
+"model.import.button" = "导入模型...";
+"model.import.footer" = "点击模型名称选择使用，点击删除图标移除模型";
+"model.import.count" = "%d 个";
+
+"model.row.fileNotFound" = "文件不存在";
+"model.row.showInFinder" = "在 Finder 中显示";
+"model.row.delete" = "删除模型";
+
+/* MARK: - LLMSettingsView */
+"llm.section.enable" = "LLM 修正";
+"llm.enable.toggle" = "启用 LLM 自动修正";
+"llm.enable.footer" = "转录完成后自动使用 LLM 修正文字内容";
+
+"llm.section.provider" = "Provider";
+"llm.provider.picker" = "服务提供商";
+"llm.provider.builtin" = "内置";
+"llm.provider.custom" = "自定义";
+"llm.provider.manage" = "管理自定义 Provider";
+"llm.provider.footer" = "选择 Provider 后可在此设置 API Key、模型等参数";
+
+"llm.section.apiSettings" = "API 设置";
+"llm.section.customProviderSettings" = "自定义 Provider 设置";
+"llm.api.modelName" = "模型名称";
+"llm.api.apiKey" = "API Key";
+"llm.api.apiUrl" = "API URL";
+"llm.api.apiKeyOptional" = "API Key（可选）";
+"llm.provider.delete" = "删除此 Provider";
+
+"llm.section.prompt" = "自定义 Prompt";
+"llm.prompt.resetDefault" = "重置为默认";
+"llm.prompt.customized" = "已自定义";
+"llm.prompt.useDefault" = "使用默认";
+"llm.prompt.footer" = "编辑提示词来改变 LLM 修正文字的方式";
+
+"llm.section.test" = "测试 LLM";
+"llm.test.button" = "测试 LLM 设置";
+"llm.test.testing" = "测试中...";
+"llm.test.input" = "输入文字：";
+"llm.test.output" = "输出文字：";
+"llm.test.error" = "错误：";
+"llm.test.footer" = "点击测试按钮验证 LLM 设置是否正确";
+
+/* MARK: - CustomProviderSheets */
+"llm.addProvider.title" = "添加自定义 Provider";
+"llm.addProvider.section.info" = "Provider 信息";
+"llm.addProvider.name" = "显示名称";
+"llm.addProvider.template" = "快速模板";
+"llm.addProvider.template.placeholder" = "选择模板...";
+"llm.addProvider.section.api" = "API 设置";
+"llm.addProvider.section.prompt" = "提示词（可选）";
+"llm.addProvider.addButton" = "添加 Provider";
+"llm.addProvider.cancel" = "取消";
+
+"llm.manageProviders.title" = "管理自定义 Provider";
+"llm.manageProviders.empty" = "尚未添加任何自定义 Provider";
+"llm.manageProviders.close" = "关闭";
+"llm.manageProviders.add" = "添加";
+"llm.manageProviders.deleteTitle" = "删除 Provider";
+"llm.manageProviders.deleteMessage" = "确定要删除\"%@\"吗？此操作无法撤销。";
+"llm.manageProviders.deleteConfirm" = "删除";
+"llm.manageProviders.deleteCancel" = "取消";
+
+/* MARK: - DictionarySettingsView */
+"dictionary.section.editRule" = "添加/编辑规则";
+"dictionary.rule.description" = "定义文字替换规则，将会自动替换特定的单词或短语。";
+"dictionary.rule.original" = "原始文字（例如：cloud code）";
+"dictionary.rule.replacement" = "替换后文字（例如：Claude Code）";
+"dictionary.rule.caseSensitive.help" = "区分大小写";
+"dictionary.rule.add.help" = "添加规则";
+"dictionary.rule.update.help" = "更新规则";
+"dictionary.rule.cancelEdit.help" = "取消编辑";
+
+"dictionary.section.rules" = "已定义规则";
+"dictionary.rules.empty" = "尚未添加任何规则";
+"dictionary.rules.header.original" = "原始文字";
+"dictionary.rules.header.replacement" = "替换后";
+"dictionary.rules.edit.help" = "编辑";
+"dictionary.rules.delete.help" = "删除";
+
+/* MARK: - HistorySettingsView */
+"history.section.recent" = "最近 10 条输入";
+"history.empty" = "暂无历史输入";
+"history.copy" = "复制";
+"history.delete.help" = "删除此条记录";
+"history.footer" = "可快速复制或删除历史文字";
+
+/* MARK: - ContentView */
+"content.tab.main" = "主控";
+"content.tab.history" = "历史";
+
+"content.status.recording" = "录音中...";
+"content.status.ready" = "准备就绪";
+
+"content.section.transcription" = "转录设置";
+"content.section.model" = "Whisper 模型";
+"content.model.noModel" = "未选择模型";
+"content.model.defaultHint" = "留空则默认使用 Apple 系统语音识别";
+
+"content.section.hotkey" = "快捷键";
+"content.hotkey.label" = "录音快捷键:";
+
+"content.section.recent" = "最近转录";
+
+"content.button.about" = "关于";
+"content.button.startRecording" = "开始录音";
+"content.button.stopRecording" = "停止录音";
+
+"content.autoInsert.help" = "转录完成后自动插入文字";
+
+"content.historyView.title" = "最近 10 条输入";
+"content.historyView.empty" = "暂无历史输入";
+"content.history.copy" = "复制";
+"content.history.delete.help" = "删除此条记录";
+
+/* MARK: - PermissionAlertView */
+"permission.alert.title" = "VoiceInput 需要权限";
+"permission.alert.cancel" = "取消";
+"permission.alert.openPreferences" = "打开系统偏好设置";
+
+"permission.check.insufficient" = "权限不足";
+"permission.check.message" = "VoiceInput 需要以下权限才能正常运行：";
+"permission.check.openPreferences" = "打开系统偏好设置";

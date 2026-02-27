@@ -8,7 +8,7 @@ struct HistorySettingsView: View {
         Form {
             Section {
                 if historyManager.transcriptionHistory.isEmpty {
-                    Text("目前沒有歷史輸入")
+                    Text(String(localized: "history.empty"))
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(historyManager.transcriptionHistory) { item in
@@ -23,7 +23,7 @@ struct HistorySettingsView: View {
                                 Button {
                                     historyManager.copyHistoryText(item.text)
                                 } label: {
-                                    Label("複製", systemImage: "doc.on.doc")
+                                    Label(String(localized: "history.copy"), systemImage: "doc.on.doc")
                                 }
                                 .buttonStyle(.borderless)
 
@@ -34,7 +34,7 @@ struct HistorySettingsView: View {
                                         .foregroundColor(.secondary)
                                 }
                                 .buttonStyle(.plain)
-                                .help("刪除此筆紀錄")
+                                .help(String(localized: "history.delete.help"))
                             }
 
                             Text(item.text)
@@ -45,9 +45,9 @@ struct HistorySettingsView: View {
                     }
                 }
             } header: {
-                Text("最近 10 筆輸入")
+                Text(String(localized: "history.section.recent"))
             } footer: {
-                Text("可快速複製或刪除歷史文字")
+                Text(String(localized: "history.footer"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

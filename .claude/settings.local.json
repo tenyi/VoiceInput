@@ -35,7 +35,8 @@
       "Bash(xxd:*)",
       "Bash(xargs cat:*)",
       "Bash(ls:*)",
-      "Bash(xargs xcrun xcresulttool get:*)"
+      "Bash(xargs xcrun xcresulttool get:*)",
+      "Bash(/Users/tenyi/Projects/VoiceInput/VoiceInput/zh-Hans.lproj/Localizable.strings:*)"
     ]
   }
 }

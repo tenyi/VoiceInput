@@ -1,0 +1,173 @@
+/* =========================================
+   Localizable.strings (English)
+   VoiceInput
+   ========================================= */
+
+// MARK: - SettingsView (設定頁分頁標籤)
+"settings.tab.general" = "General";
+"settings.tab.transcription" = "Transcription";
+"settings.tab.model" = "Model";
+"settings.tab.llm" = "LLM";
+"settings.tab.dictionary" = "Dictionary";
+"settings.tab.history" = "History";
+
+// MARK: - GeneralSettingsView
+"general.section.permissions" = "Permissions";
+"general.permission.microphone" = "Microphone";
+"general.permission.speechRecognition" = "Speech Recognition";
+"general.permission.accessibility" = "Accessibility";
+"general.permission.requestAll" = "Request Permissions";
+"general.permission.footer" = "Tap any item to view or configure permissions";
+
+"general.section.audioInput" = "Audio Input";
+"general.audioInput.picker" = "Input Device";
+"general.audioInput.refresh" = "Refresh Devices";
+"general.audioInput.footer" = "Select the microphone device for voice input";
+
+"general.section.generalSettings" = "General Settings";
+"general.autoInsert" = "Auto-insert text after transcription";
+"general.hotkey.picker" = "Recording Shortcut";
+"general.triggerMode.picker" = "Trigger Mode";
+"general.triggerMode.pressAndHold.footer" = "Hold shortcut to record, release to transcribe.";
+"general.triggerMode.toggle.footer" = "Press once to start recording, press again to stop and send.";
+
+// MARK: - TranscriptionSettingsView
+"transcription.section.language" = "Language Settings";
+"transcription.language.picker" = "Recognition Language";
+
+// MARK: - ModelSettingsView
+"model.section.engine" = "Speech Recognition Engine";
+"model.engine.picker" = "Engine";
+"model.engine.apple.footer" = "Uses macOS built-in SFSpeechRecognizer. No model download required, but needs internet.";
+"model.engine.whisper.footer" = "Uses local Whisper model. Requires downloading a .bin model file.";
+
+"model.section.importProgress" = "Import Progress";
+"model.import.importing" = "Importing model...";
+
+"model.section.error" = "Error";
+
+"model.section.importedModels" = "Imported Models";
+"model.import.empty" = "No models imported";
+"model.import.hint" = "Click the button below to import a Whisper model";
+"model.import.button" = "Import Model...";
+"model.import.footer" = "Click model name to select, click delete icon to remove";
+"model.import.count" = "%d models";
+
+"model.row.fileNotFound" = "File not found";
+"model.row.showInFinder" = "Show in Finder";
+"model.row.delete" = "Delete model";
+
+// MARK: - LLMSettingsView
+"llm.section.enable" = "LLM Correction";
+"llm.enable.toggle" = "Enable LLM Auto-Correction";
+"llm.enable.footer" = "Automatically correct transcribed text with LLM after transcription";
+
+"llm.section.provider" = "Provider";
+"llm.provider.picker" = "Service Provider";
+"llm.provider.builtin" = "Built-in";
+"llm.provider.custom" = "Custom";
+"llm.provider.manage" = "Manage Custom Providers";
+"llm.provider.footer" = "Set API Key, model and other parameters after selecting a provider";
+
+"llm.section.apiSettings" = "API Settings";
+"llm.section.customProviderSettings" = "Custom Provider Settings";
+"llm.api.modelName" = "Model Name";
+"llm.api.apiKey" = "API Key";
+"llm.api.apiUrl" = "API URL";
+"llm.api.apiKeyOptional" = "API Key (Optional)";
+"llm.provider.delete" = "Delete This Provider";
+
+"llm.section.prompt" = "Custom Prompt";
+"llm.prompt.resetDefault" = "Reset to Default";
+"llm.prompt.customized" = "Customized";
+"llm.prompt.useDefault" = "Using Default";
+"llm.prompt.footer" = "Edit the prompt to change how LLM corrects text";
+
+"llm.section.test" = "Test LLM";
+"llm.test.button" = "Test LLM Settings";
+"llm.test.testing" = "Testing...";
+"llm.test.input" = "Input:";
+"llm.test.output" = "Output:";
+"llm.test.error" = "Error:";
+"llm.test.footer" = "Click the test button to verify LLM settings";
+
+// MARK: - CustomProviderSheets
+"llm.addProvider.title" = "Add Custom Provider";
+"llm.addProvider.section.info" = "Provider Info";
+"llm.addProvider.name" = "Display Name";
+"llm.addProvider.template" = "Quick Template";
+"llm.addProvider.template.placeholder" = "Select template...";
+"llm.addProvider.section.api" = "API Settings";
+"llm.addProvider.section.prompt" = "Prompt (Optional)";
+"llm.addProvider.addButton" = "Add Provider";
+"llm.addProvider.cancel" = "Cancel";
+
+"llm.manageProviders.title" = "Manage Custom Providers";
+"llm.manageProviders.empty" = "No custom providers added";
+"llm.manageProviders.close" = "Close";
+"llm.manageProviders.add" = "Add";
+"llm.manageProviders.deleteTitle" = "Delete Provider";
+"llm.manageProviders.deleteMessage" = "Are you sure you want to delete \"%@\"? This action cannot be undone.";
+"llm.manageProviders.deleteConfirm" = "Delete";
+"llm.manageProviders.deleteCancel" = "Cancel";
+
+// MARK: - DictionarySettingsView
+"dictionary.section.editRule" = "Add/Edit Rule";
+"dictionary.rule.description" = "Define text replacement rules to automatically replace specific words or phrases.";
+"dictionary.rule.original" = "Original text (e.g.: cloud code)";
+"dictionary.rule.replacement" = "Replacement text (e.g.: Claude Code)";
+"dictionary.rule.caseSensitive.help" = "Case Sensitive";
+"dictionary.rule.add.help" = "Add Rule";
+"dictionary.rule.update.help" = "Update Rule";
+"dictionary.rule.cancelEdit.help" = "Cancel Edit";
+
+"dictionary.section.rules" = "Defined Rules";
+"dictionary.rules.empty" = "No rules added yet";
+"dictionary.rules.header.original" = "Original";
+"dictionary.rules.header.replacement" = "Replacement";
+"dictionary.rules.edit.help" = "Edit";
+"dictionary.rules.delete.help" = "Delete";
+
+// MARK: - HistorySettingsView
+"history.section.recent" = "Recent 10 Inputs";
+"history.empty" = "No history yet";
+"history.copy" = "Copy";
+"history.delete.help" = "Delete this record";
+"history.footer" = "Quickly copy or delete history text";
+
+// MARK: - ContentView
+"content.tab.main" = "Main";
+"content.tab.history" = "History";
+
+"content.status.recording" = "Recording...";
+"content.status.ready" = "Ready";
+
+"content.section.transcription" = "Transcription Settings";
+"content.section.model" = "Whisper Model";
+"content.model.noModel" = "No model selected";
+"content.model.defaultHint" = "Leave empty to use Apple Speech Recognition by default";
+
+"content.section.hotkey" = "Shortcut";
+"content.hotkey.label" = "Recording Shortcut:";
+
+"content.section.recent" = "Recent Transcription";
+
+"content.button.about" = "About";
+"content.button.startRecording" = "Start Recording";
+"content.button.stopRecording" = "Stop Recording";
+
+"content.autoInsert.help" = "Auto-insert text after transcription";
+
+"content.historyView.title" = "Recent 10 Inputs";
+"content.historyView.empty" = "No history yet";
+"content.history.copy" = "Copy";
+"content.history.delete.help" = "Delete this record";
+
+// MARK: - PermissionAlertView
+"permission.alert.title" = "VoiceInput Needs Permissions";
+"permission.alert.cancel" = "Cancel";
+"permission.alert.openPreferences" = "Open System Preferences";
+
+"permission.check.insufficient" = "Insufficient Permissions";
+"permission.check.message" = "VoiceInput needs the following permissions to function:";
+"permission.check.openPreferences" = "Open System Preferences";

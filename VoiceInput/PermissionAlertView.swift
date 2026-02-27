@@ -26,7 +26,7 @@ struct PermissionAlertView: View {
                 .foregroundColor(.orange)
 
             // 標題
-            Text("VoiceInput 需要權限")
+            Text(String(localized: "permission.alert.title"))
                 .font(.headline)
                 .foregroundColor(.primary)
 
@@ -40,13 +40,13 @@ struct PermissionAlertView: View {
             // 按鈕區域
             HStack(spacing: 16) {
                 // 取消按鈕
-                Button("取消") {
+                Button(String(localized: "permission.alert.cancel")) {
                     onDismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
                 // 打開系統偏好設定按鈕
-                Button("打開系統偏好設定") {
+                Button(String(localized: "permission.alert.openPreferences")) {
                     permissionManager.openSystemPreferences(for: permissionType)
                     onDismiss()
                 }
@@ -80,11 +80,11 @@ struct PermissionCheckView<Content: View>: View {
                         .font(.system(size: 40))
                         .foregroundColor(.yellow)
 
-                    Text("權限不足")
+                    Text(String(localized: "permission.check.insufficient"))
                         .font(.title2)
                         .fontWeight(.semibold)
 
-                    Text("VoiceInput 需要以下權限才能正常運作：")
+                    Text(String(localized: "permission.check.message"))
                         .font(.body)
                         .foregroundColor(.secondary)
 
@@ -109,7 +109,7 @@ struct PermissionCheckView<Content: View>: View {
                         }
                     }
 
-                    Button("打開系統偏好設定") {
+                    Button(String(localized: "permission.check.openPreferences")) {
                         // 嘗試打開輔助功能設定（最關鍵的權限）
                         if let url = PermissionType.accessibility.systemPreferencesURL {
                             NSWorkspace.shared.open(url)

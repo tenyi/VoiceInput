@@ -17,32 +17,32 @@ struct SettingsView: View {
             TabView {
                 GeneralSettingsView()
                     .tabItem {
-                        Label("一般", systemImage: "gear")
+                        Label(String(localized: "settings.tab.general"), systemImage: "gear")
                     }
 
                 TranscriptionSettingsView()
                     .tabItem {
-                        Label("轉錄", systemImage: "text.bubble")
+                        Label(String(localized: "settings.tab.transcription"), systemImage: "text.bubble")
                     }
 
                 ModelSettingsView()
                     .tabItem {
-                        Label("模型", systemImage: "cpu")
+                        Label(String(localized: "settings.tab.model"), systemImage: "cpu")
                     }
 
                 LLMSettingsView()
                     .tabItem {
-                        Label("LLM", systemImage: "brain")
+                        Label(String(localized: "settings.tab.llm"), systemImage: "brain")
                     }
 
                 DictionarySettingsView()
                     .tabItem {
-                        Label("字典", systemImage: "character.book.closed")
+                        Label(String(localized: "settings.tab.dictionary"), systemImage: "character.book.closed")
                     }
 
                 HistorySettingsView()
                     .tabItem {
-                        Label("歷史", systemImage: "clock.arrow.circlepath")
+                        Label(String(localized: "settings.tab.history"), systemImage: "clock.arrow.circlepath")
                     }
             }
             .frame(minWidth: 460, minHeight: 350)
