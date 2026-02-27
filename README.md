@@ -1,139 +1,139 @@
 # VoiceInput
 
-VoiceInput 是一款 macOS 上的語音輸入工具，讓您可以透過語音將文字輸入到任何應用程式中。受到 [VoiceInk](https://github.com/Beingpax/VoiceInk) 的啟發，開發了這款工具，完全免費且自由，不需要授權。
+VoiceInput is a macOS voice input tool that lets you dictate text into any application. Inspired by [VoiceInk](https://github.com/Beingpax/VoiceInk), this tool is completely free and open, with no license required.
 
-## 功能特色
+## Features
 
-- **按住說話，放開轉寫**：使用修飾鍵（Command、Option、Fn）作為快捷鍵，按住開始錄音，放開後自動將文字插入到當前焦點的輸入框
-- **即時語音辨識**：錄音期間即時顯示辨識結果
-- **多語言支援**：支援繁體中文、簡體中文、英文、日文
-- **靈活的設定**：可自訂快捷鍵、語言、切換自動插入功能
-- **浮動面板**：錄音時顯示美觀的浮動膠囊視窗
-- **LLM 智慧修正**：內建語言模型處理流程，可自動修正錯字與語句不順
-- **自訂字典**：支援個人化詞彙取代規則（如將「水平致中」取代為「水平置中」）
+- **Push-to-talk**: Use modifier keys (Command, Option, Fn) as hotkeys — hold to record, release to transcribe and insert text into the focused input field
+- **Real-time recognition**: Live transcription results displayed while recording
+- **Multi-language support**: Traditional Chinese, Simplified Chinese, English, Japanese
+- **Flexible settings**: Customizable hotkey, language, and auto-insert toggle
+- **Floating panel**: A sleek floating capsule window displayed during recording
+- **LLM smart correction**: Built-in language model pipeline to automatically fix typos and awkward phrasing
+- **Custom dictionary**: Personalized word replacement rules (e.g., replace "water level center" with "horizontally centered")
 
-## 支援的快捷鍵
+## Supported Hotkeys
 
-| 快捷鍵 | 說明 |
-|--------|------|
-| 右邊 Command (⌘) | 預設快捷鍵 |
-| 左邊 Command (⌘) | |
-| 右邊 Option (⌥) | |
-| 左邊 Option (⌥) | |
-| Fn 鍵 | |
+| Hotkey | Description |
+|--------|-------------|
+| Right Command (⌘) | Default hotkey |
+| Left Command (⌘) | |
+| Right Option (⌥) | |
+| Left Option (⌥) | |
+| Fn key | |
 
-## 系統需求
+## System Requirements
 
-- macOS 12.0 或更高版本
-- 麥克風權限
-- 語音辨識權限
-- 輔助功能權限（用於模擬鍵盤輸入文字）
+- macOS 12.0 or later
+- Microphone permission
+- Speech recognition permission
+- Accessibility permission (for simulating keyboard input)
 
-## 權限說明
+## Permissions
 
-首次使用時，系統會要求您授予以下權限：
+On first launch, the system will prompt you to grant the following permissions:
 
-1. **麥克風權限**：用於錄製您的語音
-2. **語音辨識權限**：用於將語音轉換為文字
-3. **輔助功能權限**：用於將文字輸入到其他應用程式中
+1. **Microphone**: To record your voice
+2. **Speech Recognition**: To convert speech to text
+3. **Accessibility**: To insert text into other applications
 
-## 安裝說明
+## Installation
 
-### 從原始碼編譯
+### Build from Source
 
-1. 複製專案：
+1. Clone the repository:
 
    ```bash
    git clone https://github.com/tenyi/VoiceInput.git
    cd VoiceInput
    ```
 
-2. 使用 Xcode 開啟 `VoiceInput.xcodeproj`
+2. Open `VoiceInput.xcodeproj` in Xcode
 
-3. 在 Xcode 中設定您的開發者簽名
+3. Configure your developer signing in Xcode
 
-4. 編譯並執行 (⌘R)
+4. Build and run (⌘R)
 
-### 設定權限
+### Configure Permissions
 
-1. 首次執行後，系統會彈出權限請求對話框，請點擊「允許」
-2. 若權限被拒絕，可前往 **系統偏好設定 > 隱私權與安全性** 手动开启
-3. 點擊選單列中的 VoiceInput 圖示，選擇「設定」來查看權限狀態
+1. On first launch, a permission dialog will appear — click "Allow"
+2. If permission is denied, go to **System Preferences > Privacy & Security** to enable manually
+3. Click the VoiceInput icon in the menu bar and select "Settings" to check permission status
 
-## 使用教學
+## Usage
 
-### 基本操作
+### Basic Operation
 
-1. **開始錄音**：按住設定的快捷鍵（例如右邊 Command 或 fn 鍵）
-2. **說話**：對著麥克風說話
-3. **停止並輸入**：放開快捷鍵，語音會自動轉換為文字並插入到您正在使用的輸入框中
+1. **Start recording**: Hold the configured hotkey (e.g., Right Command or Fn)
+2. **Speak**: Talk into your microphone
+3. **Stop and insert**: Release the hotkey — your speech is automatically converted to text and inserted into the active input field
 
-### 設定
+### Settings
 
-1. 點擊選單列中的 VoiceInput 圖示
-2. 選擇「設定」開啟設定視窗
-3. 您可以設定：
-   - **辨識語言**：選擇語音辨識的語言
-   - **快捷鍵**：選擇用於觸發錄音的按鍵
-   - **自動插入**：切換轉錄完成後是否自動輸入文字
+1. Click the VoiceInput icon in the menu bar
+2. Select "Settings" to open the settings window
+3. You can configure:
+   - **Recognition language**: Choose the language for speech recognition
+   - **Hotkey**: Choose the key to trigger recording
+   - **Auto-insert**: Toggle whether text is automatically inserted after transcription
 
-## 技術架構
+## Technical Architecture
 
-- **語音辨識**：
-  - **Apple Speech Framework**：macOS 內建的語音辨識服務，無需額外設定即可使用
-  - **Whisper**：支援本地端 Whisper 模型，可離線使用且辨識效果更佳
-- **音訊處理**：使用 AVAudioEngine 進行錄音
-- **鍵盤模擬**：使用 CGEvent 模擬 Cmd+V 貼上文字
-- **快捷鍵監控**：使用 CGEventTap 監聽鍵盤事件
+- **Speech recognition**:
+  - **Apple Speech Framework**: Built-in macOS speech recognition, works out of the box
+  - **Whisper**: Local Whisper model support for offline use with better accuracy
+- **Audio processing**: AVAudioEngine for recording
+- **Keyboard simulation**: CGEvent to simulate Cmd+V paste
+- **Hotkey monitoring**: CGEventTap to listen for keyboard events
 
-## 推薦模型
+## Recommended Model
 
-### 聯發科 Breeze ASR 模型（繁體中文極力推薦）
+### MediaTek Breeze ASR (Highly recommended for Traditional Chinese)
 
-對於繁體中文辨識，推薦使用聯發科（MediaTek）的 Breeze ASR 模型：
+For Traditional Chinese recognition, we recommend the Breeze ASR model by MediaTek:
 
-**下載連結**：<https://huggingface.co/alan314159/Breeze-ASR-25-whispercpp/tree/main>
+**Download**: <https://huggingface.co/alan314159/Breeze-ASR-25-whispercpp/tree/main>
 
-**推薦版本**：
+**Recommended versions**:
 
-- `ggml-model-q4_k.bin`（4 bit 量化）：平衡了模型大小與辨識效果，推薦首選
-- `ggml-model-q8_k.bin`（8 bit 量化）：如果需要高精度且磁碟空間允許
+- `ggml-model-q4_k.bin` (4-bit quantized): Best balance of size and accuracy — recommended first choice
+- `ggml-model-q8_k.bin` (8-bit quantized): For higher accuracy when disk space allows
 
-**使用方法**：
+**How to use**:
 
-1. 從上述連結下載 `ggml-model-q4_k.bin` 模型檔案
-2. 打開 VoiceInput 設定
-3. 前往「模型」頁面
-4. 點擊「匯入模型」並選擇下載的模型檔案
-5. 選擇該模型作為 Whisper 引擎
+1. Download `ggml-model-q4_k.bin` from the link above
+2. Open VoiceInput settings
+3. Go to the "Model" tab
+4. Click "Import Model" and select the downloaded file
+5. Select the model as the Whisper engine
 
-**為什麼選擇 Breeze ASR**：
+**Why Breeze ASR**:
 
-- 專為中文語音設計，繁體中文辨識效果優異
-- 經過 whisper.cpp 優化，可在 Apple Silicon 上高效運行
-- 4 bit 量化版本體積小（約 900MB），記憶體佔用低
+- Designed specifically for Chinese speech — excellent Traditional Chinese accuracy
+- Optimized for whisper.cpp, runs efficiently on Apple Silicon
+- 4-bit quantized version is compact (~900 MB) with low memory footprint
 
-## LLM 智慧修正與自訂字典
+## LLM Smart Correction & Custom Dictionary
 
-除了本地端的語音辨識外，VoiceInput 也支援強大的後處理功能，讓輸入更精準：
+In addition to local speech recognition, VoiceInput supports powerful post-processing features for more accurate input:
 
-### 智慧修正 (LLM Correction)
+### LLM Correction
 
-您可以設定 OpenAI 相容的 API 端點（支援官方 OpenAI、OpenRouter 等各種自訂供應商），讓語言模型自動為您修正轉錄文字的錯字。
+Configure an OpenAI-compatible API endpoint (supports official OpenAI, OpenRouter, and custom providers) to let a language model automatically correct transcription errors.
 
-**💡 強烈推薦使用 `google/gemini-2.5-flash-lite` 模型**：
+**💡 Strongly recommended: `google/gemini-2.5-flash-lite`**:
 
-- **速度極快**：修正步驟造成的延遲時間短
-- **價格極便宜**：API 呼叫成本非常低，是日常大量語音輸入的完美選擇
+- **Ultra-fast**: Minimal latency added by the correction step
+- **Very affordable**: Extremely low API cost — perfect for heavy daily voice input
 
-### 自訂字典 (User Dictionary)
+### Custom Dictionary (User Dictionary)
 
-在設定中的「字典」分頁，您可以加入專屬的常用詞彙取代規則。系統會在最終文字輸出前，套用您的自訂字典，確保您的專有名詞或特定用語永遠正確無誤。
+In the "Dictionary" tab of settings, add your own word replacement rules. The custom dictionary is applied before final text output, ensuring your proper nouns and specific terminology are always correct.
 
-## 開發者
+## Author
 
-- 作者：Tenyi
+- Tenyi
 
-## 授權
+## License
 
-本專案採用 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) 授權。
+This project is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
