@@ -1,5 +1,7 @@
 # VoiceInput
 
+[English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
+
 VoiceInput is a macOS voice input tool that lets you dictate text into any application. Inspired by [VoiceInk](https://github.com/Beingpax/VoiceInk), this tool is completely free and open, with no license required.
 
 ## Features

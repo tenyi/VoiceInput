@@ -172,6 +172,12 @@ struct LLMSettingsView: View {
                         SecureField(String(localized: "llm.api.apiKey"), text: $llmSettings.llmAPIKey)
                         .textFieldStyle(.roundedBorder)
 
+                        if let errorMessage = llmSettings.keychainErrorMessage {
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+
                         TextField(String(localized: "llm.api.modelName"), text: Binding(
                             get: { custom.model },
                             set: { newValue in
@@ -203,6 +209,11 @@ struct LLMSettingsView: View {
                     if selectedProvider == .openAI || selectedProvider == .anthropic {
                         SecureField(String(localized: "llm.api.apiKey"), text: $llmSettings.llmAPIKey)
                             .textFieldStyle(.roundedBorder)
+                        if let errorMessage = llmSettings.keychainErrorMessage {
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
                     }
 
                     // Ollama 需要 URL
@@ -223,6 +234,11 @@ struct LLMSettingsView: View {
 
                         SecureField(String(localized: "llm.api.apiKeyOptional"), text: $llmSettings.llmAPIKey)
                             .textFieldStyle(.roundedBorder)
+                        if let errorMessage = llmSettings.keychainErrorMessage {
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
                     }
                 }
             } header: {

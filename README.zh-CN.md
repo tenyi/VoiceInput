@@ -1,5 +1,7 @@
 # VoiceInput
 
+[English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
+
 VoiceInput 是一款 macOS 上的语音输入工具，让您可以通过语音将文字输入到任何应用程序中。受到 [VoiceInk](https://github.com/Beingpax/VoiceInk) 的启发开发了这款工具，完全免费且自由，不需要授权。
 
 ## 功能特色

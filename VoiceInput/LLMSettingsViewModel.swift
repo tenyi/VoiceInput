@@ -67,6 +67,8 @@ class LLMSettingsViewModel: ObservableObject {
     private let saveAPIKeySubject = PassthroughSubject<(String, LLMProvider, String?), Never>()
     private var cancellables = Set<AnyCancellable>()
     
+    @Published var keychainErrorMessage: String?
+    
     // MARK: - AppStorage 設定
     
     @AppStorage("llmProvider") var llmProvider: String = LLMProvider.openAI.rawValue {
@@ -226,10 +228,14 @@ class LLMSettingsViewModel: ObservableObject {
     }
 
     private func deleteProviderFromKeychain(_ provider: CustomLLMProvider) {
-        keychain.delete(
-            service: "com.tenyi.voiceinput",
-            account: "llmAPIKey.\(provider.id.uuidString)"
-        )
+        do {
+            try keychain.delete(
+                service: "com.tenyi.voiceinput",
+                account: "llmAPIKey.\(provider.id.uuidString)"
+            )
+        } catch {
+            logger.error("無法刪除 API Key: \(error.localizedDescription)")
+        }
         if selectedCustomProviderId == provider.id.uuidString {
             selectedCustomProviderId = nil
             llmProvider = LLMProvider.openAI.rawValue
@@ -287,21 +293,35 @@ class LLMSettingsViewModel: ObservableObject {
     }
 
     private func loadLegacyLLMAPIKeyIfNeeded() {
-        if let savedKey = keychain.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), !savedKey.isEmpty {
-            isInternalUpdating = true
-            llmAPIKey = savedKey
-            isInternalUpdating = false
-            return
+        do {
+            if let savedKey = try keychain.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), !savedKey.isEmpty {
+                isInternalUpdating = true
+                llmAPIKey = savedKey
+                isInternalUpdating = false
+                return
+            }
+        } catch {
+            logger.error("讀取舊版 API Key 失敗: \(error.localizedDescription)")
         }
     }
 
     private func saveAPIKey(key: String, provider: LLMProvider, customId: String?) {
         let account = providerAPIKeyAccount(for: provider, customId: customId)
-        keychain.save(
-            key,
-            service: "com.tenyi.voiceinput",
-            account: account
-        )
+        do {
+            try keychain.save(
+                key,
+                service: "com.tenyi.voiceinput",
+                account: account
+            )
+            DispatchQueue.main.async {
+                self.keychainErrorMessage = nil
+            }
+        } catch {
+            DispatchQueue.main.async {
+                self.keychainErrorMessage = error.localizedDescription
+            }
+            logger.error("儲存 API Key 失敗: \(error.localizedDescription)")
+        }
     }
 
     func loadAPIKey(for provider: LLMProvider, customId: String? = nil) {
@@ -310,13 +330,22 @@ class LLMSettingsViewModel: ObservableObject {
         isInternalUpdating = true
         defer { isInternalUpdating = false }
 
-        if let savedKey = keychain.read(service: "com.tenyi.voiceinput", account: account) {
-            llmAPIKey = savedKey
-        } else if let legacyKey = keychain.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), provider == .openAI {
-            llmAPIKey = legacyKey
-            saveAPIKey(key: legacyKey, provider: provider, customId: customId)
-        } else {
+        do {
+            if let savedKey = try keychain.read(service: "com.tenyi.voiceinput", account: account) {
+                llmAPIKey = savedKey
+                DispatchQueue.main.async { self.keychainErrorMessage = nil }
+            } else if let legacyKey = try keychain.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), provider == .openAI {
+                llmAPIKey = legacyKey
+                saveAPIKey(key: legacyKey, provider: provider, customId: customId)
+                DispatchQueue.main.async { self.keychainErrorMessage = nil }
+            } else {
+                llmAPIKey = ""
+                DispatchQueue.main.async { self.keychainErrorMessage = nil }
+            }
+        } catch {
             llmAPIKey = ""
+            DispatchQueue.main.async { self.keychainErrorMessage = error.localizedDescription }
+            logger.error("讀取 API Key 失敗: \(error.localizedDescription)")
         }
     }
     
@@ -331,7 +360,8 @@ class LLMSettingsViewModel: ObservableObject {
         let requestProvider = (customId != nil && providerString == "Custom") ? .custom : (LLMProvider(rawValue: providerString) ?? .openAI)
         let exactAccountName = providerAPIKeyAccount(for: requestProvider, customId: customId)
         
-        let exactAPIKey = keychain.read(service: "com.tenyi.voiceinput", account: exactAccountName) ?? ""
+        // 忽略讀取失敗，回退為空字串，因為設定時已經反映給 UI 了
+        let exactAPIKey = (try? keychain.read(service: "com.tenyi.voiceinput", account: exactAccountName)) ?? ""
 
         return LLMSettingsViewModel.resolveEffectiveLLMConfiguration(
             prompt: llmPrompt,

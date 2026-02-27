@@ -333,8 +333,9 @@ class PermissionManager: ObservableObject {
         }
     }
 
-    /// 請求所有必要權限
-    func requestAllPermissions(completion: @escaping (Bool) -> Void) {
+    /// 請求所有必要權限 (強制重新請求，不受 hasRequestedPermissionsThisSession 限制)
+    /// 內部使用，外部應呼叫 `requestAllPermissionsIfNeeded`
+    private func requestAllPermissionsForcibly(completion: @escaping (Bool) -> Void) {
         // 先檢查所有權限
         requestPermission(.microphone) { [weak self] micGranted in
             self?.requestPermission(.speechRecognition) { speechGranted in
