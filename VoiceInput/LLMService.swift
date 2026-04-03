@@ -120,7 +120,7 @@ class LLMService {
                let firstChoice = choices.first,
                let message = firstChoice["message"] as? [String: Any],
                let content = message["content"] as? String {
-                return content
+                return stripThinkTags(content)
             } else if let error = json["error"] as? [String: Any],
                       let message = error["message"] as? String {
                 throw LLMServiceError.apiError(message)
@@ -132,7 +132,7 @@ class LLMService {
             throw LLMServiceError.invalidResponse
         }
     }
-    
+
     private func parseAnthropicResponse(data: Data) throws -> String {
         do {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -141,7 +141,7 @@ class LLMService {
             if let content = json["content"] as? [[String: Any]],
                let firstContent = content.first,
                let text = firstContent["text"] as? String {
-                return text
+                return stripThinkTags(text)
             } else if let error = json["error"] as? [String: Any],
                       let message = error["message"] as? String {
                 throw LLMServiceError.apiError(message)
@@ -152,6 +152,21 @@ class LLMService {
         } catch {
             throw LLMServiceError.invalidResponse
         }
+    }
+
+    /// 過濾 LLM 回傳內容中的<think>...</think> 標籤及其思考過程
+    /// 某些模型（如 Claude）會在回傳時夾帶思考過程，這不是實際結果
+    /// - Parameter text: 原始回傳文字
+    /// - Returns: 過濾並去除多餘空白後的文字
+    private func stripThinkTags(_ text: String) -> String {
+        // 使用正則表達式移除<think>...</think>標籤及其內容
+        let pattern = "<think>[\\s\\S]*?</think>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        let result = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - OpenAI API

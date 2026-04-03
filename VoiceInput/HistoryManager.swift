@@ -29,9 +29,8 @@ class HistoryManager: ObservableObject {
     
     init(fileSystem: FileSystemProtocol) {
         self.fileSystem = fileSystem
-        Task { @MainActor in
-            loadTranscriptionHistory()
-        }
+        // 直接同步載入，確保初始化完成後 transcriptionHistory 已有資料
+        loadTranscriptionHistory()
     }
 
     convenience init() {

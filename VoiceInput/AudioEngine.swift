@@ -5,6 +5,27 @@ import AVFAudio
 import os
 import CoreAudio
 
+/// AudioEngine 錯誤類型
+enum AudioEngineError: Error, LocalizedError {
+    case permissionNotGranted
+    case deviceNotAvailable
+    case sessionConfigurationFailed
+    case inputNotSupported
+
+    var errorDescription: String? {
+        switch self {
+        case .permissionNotGranted:
+            return "麥克風或語音辨識權限尚未取得"
+        case .deviceNotAvailable:
+            return "無法取得指定的音訊輸入裝置"
+        case .sessionConfigurationFailed:
+            return "無法將音訊輸入加入到 session 中"
+        case .inputNotSupported:
+            return "設備不支持音訊輸入"
+        }
+    }
+}
+
 /// 負責處理麥克風輸入與權限管理的音訊引擎
 /// This class handles microphone input and permission management.
 class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAudioDataOutputSampleBufferDelegate {
@@ -155,7 +176,9 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
     /// Starts recording audio.
     /// - Parameter callback: 錄音數據的回調閉包 (Callback for audio buffer)
     func startRecording(callback: @escaping (AVAudioPCMBuffer) -> Void) throws {
-        guard permissionGranted else { return }
+        guard permissionGranted else {
+            throw AudioEngineError.permissionNotGranted
+        }
 
         // 先停止現有的引擎（如果有的話）
         if let session = captureSession, session.isRunning {

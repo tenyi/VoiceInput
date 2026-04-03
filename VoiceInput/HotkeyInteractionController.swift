@@ -28,6 +28,9 @@ enum RecordingTriggerMode: String, CaseIterable {
 /// - 輸入：`hotkeyPressed()` / `hotkeyReleased()`（來自 HotkeyManager）
 /// - 輸出：`onStartRecording` / `onStopAndTranscribe`（供 ViewModel 執行）
 /// - 模式切換可即時生效，不需重啟 App
+
+/// Toggle 模式防重入 debounce 時間（秒）
+private let toggleTransitionDebounce: Double = 0.3
 class HotkeyInteractionController {
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput",
@@ -89,7 +92,7 @@ class HotkeyInteractionController {
                 isTransitioning = true
                 triggerStart()
                 // 短暫 debounce，避免極速雙擊
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + toggleTransitionDebounce) { [weak self] in
                     self?.isTransitioning = false
                 }
             } else {

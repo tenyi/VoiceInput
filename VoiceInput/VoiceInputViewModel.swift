@@ -22,6 +22,18 @@ enum AppStatusMessage {
     static let recordingFailedPrefix = "錄音啟動失敗："
 }
 
+// MARK: - 時間常量
+
+/// 時間間隔常數（秒）
+enum TimeConstants {
+    /// 防抖間距：錄音時間少於此值則忽略停止事件
+    static let debounceInterval: Double = 0.3
+    /// 浮動視窗隱藏延遲：顯示最終結果後等待此時間才隱藏
+    static let windowHideDelay: Double = 1.0
+    /// 焦點切換延遲：確保目標應用程式取得焦點
+    static let focusSwitchDelay: Double = 0.1
+}
+
 /// 負責管理 VoiceInput 應用程式狀態的 ViewModel
 @MainActor
 class VoiceInputViewModel: ObservableObject {
@@ -301,7 +313,7 @@ class VoiceInputViewModel: ObservableObject {
 
         // 防抖：錄音時間少於 300ms 則忽略放開事件
         if let startTime = recordingStartTime,
-           Date().timeIntervalSince(startTime) < 0.3 {
+           Date().timeIntervalSince(startTime) < TimeConstants.debounceInterval {
             logger.warning("錄音時間過短（< 300ms），忽略停止請求")
             return
         }
@@ -504,7 +516,7 @@ class VoiceInputViewModel: ObservableObject {
     /// 插入文字到當前焦點
     private func insertText() {
         // 延遲確保焦點切換
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + TimeConstants.focusSwitchDelay) { [weak self] in
             guard let self = self else { return }
             self.inputSimulator.insertText(self.transcribedText)
         }
@@ -513,7 +525,7 @@ class VoiceInputViewModel: ObservableObject {
     /// 隱藏浮動視窗
     private func hideWindow() {
         // 顯示最終結果一段時間後隱藏
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + TimeConstants.windowHideDelay) { [weak self] in
             WindowManager.shared.hideFloatingWindow()
             self?.appState = .idle
             self?.transcribedText = AppStatusMessage.waitingForInput

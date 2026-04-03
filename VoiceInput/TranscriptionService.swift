@@ -20,6 +20,9 @@ protocol TranscriptionServiceProtocol {
 class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "TranscriptionService")
 
+    /// SFSpeech 等待最終結果回調的超時時間（秒）
+    private let finalizeTimeout: Double = 1.5
+
     /// 轉錄結果回調
     var onTranscriptionResult: ((Result<String, Error>) -> Void)?
 
@@ -69,7 +72,7 @@ class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
 
         // T1-2：設定 timeout，超時才強制 cancel 並清理
         finalizeTimeoutTimer?.invalidate()
-        finalizeTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+        finalizeTimeoutTimer = Timer.scheduledTimer(withTimeInterval: finalizeTimeout, repeats: false) { [weak self] _ in
             guard let self = self, self.isWaitingForFinal else { return }
             self.logger.warning("SFSpeechTranscriptionService: 等待最終結果逾時，強制 cancel")
             self.cleanupRecognition()

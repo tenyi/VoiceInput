@@ -8,6 +8,10 @@ class InputSimulator: InputSimulatorProtocol {
     /// 單例 (Singleton) 實例
     static let shared = InputSimulator()
 
+    /// 剪貼簿還原延遲（秒），確保目標應用程式有足夠時間讀取 Cmd+V
+    /// 此值允許 UI 事件循環處理完貼上動作
+    private static let clipboardRestoreDelay: Double = 0.2
+
     /// 權限管理員
     private let permissionManager = PermissionManager.shared
 
@@ -86,8 +90,7 @@ class InputSimulator: InputSimulatorProtocol {
         cmdUp?.post(tap: .cghidEventTap)
         
         // 延遲一小段時間後恢復剪貼簿內容，確保目標應用程式有足夠時間讀取 Cmd+V
-        // 通常 0.2 秒已足夠讓 UI 事件循環處理完貼上動作
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.clipboardRestoreDelay) {
             // 檢查使用者是否在這 0.2 秒內又複製了新內容（透過 changeCount 判斷）
             // 如果 changeCount 未增加，代表剪貼簿仍是我們塞入的轉寫文字，才執行還原
             if pasteboard.changeCount == initialChangeCount {

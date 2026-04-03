@@ -11,7 +11,8 @@ enum WhisperError: Error, Identifiable {
     case invalidModelPath
     case notInitialized
 
-    var id: String { UUID().uuidString }
+    /// 使用 errorDescription 作為穩定的識別符，避免每次存取 Identifiable.id 都產生新 UUID
+    var id: String { errorDescription ?? "unknownError" }
 }
 
 extension WhisperError: LocalizedError {
@@ -64,6 +65,9 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
 
     private var accumulatedBuffer: [Float] = []
     nonisolated private let sampleRate: Float = 16000.0
+    /// 音訊緩衝區最大容量（5 分鐘 = 16000 Hz * 60s * 5）
+    nonisolated private let maxBufferCapacity: Int = 16000 * 60 * 5
+    /// 開始部分轉寫的最短音訊時長（秒）
     nonisolated private let partialTranscriptionMinDuration: Double = 1.0
 
     nonisolated private let audioProcessingQueue = DispatchQueue(label: "com.tenyi.voiceinput.audioprocessing", qos: .userInitiated)
@@ -103,22 +107,53 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
         isRunning = true
         isTranscribing = false
         pendingFinalTranscription = false
-        // 預留 5 分鐘的音訊容量（16000 Hz * 60s * 5 * 4 bytes ≈ 19MB），
+        // 預留 5 分鐘的音訊容量（使用 maxBufferCapacity），
         // 避免先前預留 1 小時（~230MB）造成不必要的大量記憶體佔用。
         // 使用 keepingCapacity:false 讓 Swift 依實際使用量動態擴增。
         accumulatedBuffer.removeAll(keepingCapacity: false)
-        accumulatedBuffer.reserveCapacity(16000 * 60 * 5)
+        accumulatedBuffer.reserveCapacity(maxBufferCapacity)
     }
 
     func stop() {
         isRunning = false
         if isTranscribing {
+            // 轉寫正在進行中，標記等待最後一次轉寫完成
             pendingFinalTranscription = true
         } else if !accumulatedBuffer.isEmpty {
-            Task {
-                await transcribeFinalIfNeeded()
+            // 轉寫未進行但有緩衝資料，直接執行最後轉寫並等待完成
+            // 捕獲必要資料的副本，避免在 async 作業期間物件被釋放
+            let frames = accumulatedBuffer
+            let language = selectedLanguage
+            Task { [weak self] in
+                // 確保 self 在 Task 完成前不被釋放
+                guard let self = self else { return }
+                await self.performFinalTranscription(frames: frames, language: language)
             }
         }
+    }
+
+    /// 執行最終轉寫（由 stop() 呼叫）
+    private func performFinalTranscription(frames: [Float], language: String) async {
+        guard let context = whisperContext else {
+            onTranscriptionResult?(.failure(WhisperError.notInitialized))
+            return
+        }
+
+        guard !isTranscribing else { return }
+        isTranscribing = true
+        pendingFinalTranscription = false
+
+        do {
+            let text = try await context.transcribe(samples: frames, language: language)
+            if !text.isEmpty {
+                onTranscriptionResult?(.success(text))
+            }
+        } catch {
+            logger.error("Whisper final 轉錄失敗: \(error.localizedDescription)")
+            onTranscriptionResult?(.failure(error))
+        }
+
+        finalizeTranscriptionCycle()
     }
 
     nonisolated func process(buffer: AVAudioPCMBuffer) {
