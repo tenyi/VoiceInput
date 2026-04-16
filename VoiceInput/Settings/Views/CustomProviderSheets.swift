@@ -22,7 +22,7 @@ struct AddCustomProviderSheet: View {
         ("GLM", "https://api.z.ai/api/coding/paas/v4/chat/completions", "glm-4.7-flash"),
         ("DeepSeek", "https://api.deepseek.com/v1/chat/completions", "deepseek-chat"),
         ("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", "openrouter/auto"),
-        ("本地 Ollama", "http://localhost:11434/v1/chat/completions", "gemma3:4b")
+        ("本地 Ollama", "http://localhost:11434/v1/chat/completions", "gemma4:e4b")
     ]
 
     var body: some View {

@@ -11,6 +11,9 @@
 Thumbs.db
 ehthumbs.db
 
+.serena/
+.claude/
+
 ## 備份檔
 *.bak
 *~
