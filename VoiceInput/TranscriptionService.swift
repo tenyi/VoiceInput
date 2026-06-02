@@ -17,11 +17,12 @@ protocol TranscriptionServiceProtocol {
 }
 
 /// 使用 Apple SFSpeechRecognizer 的轉錄服務實作
-class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "TranscriptionService")
+@MainActor
+final class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
+    nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "TranscriptionService")
 
     /// SFSpeech 等待最終結果回調的超時時間（秒）
-    private let finalizeTimeout: Double = 1.5
+    nonisolated private let finalizeTimeout: Double = 1.5
 
     /// 轉錄結果回調
     var onTranscriptionResult: ((Result<String, Error>) -> Void)?
@@ -73,9 +74,12 @@ class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
         // T1-2：設定 timeout，超時才強制 cancel 並清理
         finalizeTimeoutTimer?.invalidate()
         finalizeTimeoutTimer = Timer.scheduledTimer(withTimeInterval: finalizeTimeout, repeats: false) { [weak self] _ in
-            guard let self = self, self.isWaitingForFinal else { return }
-            self.logger.warning("SFSpeechTranscriptionService: 等待最終結果逾時，強制 cancel")
-            self.cleanupRecognition()
+            // C-3 修復:Timer 觸發後 hop 回 MainActor 再存取 @MainActor 隔離的狀態
+            Task { @MainActor in
+                guard let self = self, self.isWaitingForFinal else { return }
+                self.logger.warning("SFSpeechTranscriptionService: 等待最終結果逾時，強制 cancel")
+                self.cleanupRecognition()
+            }
         }
     }
 
@@ -93,41 +97,45 @@ class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
             }
 
             recognitionTask = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-                guard let self = self else { return }
+                // C-3 修復:SFSpeech callback 從其私有執行緒觸發,必須 hop 回 MainActor
+                // 才能安全存取 @MainActor 隔離的狀態 (recognitionTask / cleanupRecognition 等)
+                Task { @MainActor in
+                    guard let self = self else { return }
 
-                // 優先處理識別結果
-                if let result = result {
-                    let transcription = result.bestTranscription.formattedString
+                    // 優先處理識別結果
+                    if let result = result {
+                        let transcription = result.bestTranscription.formattedString
 
-                    // 只要有轉錄內容就回報 (串流式更新)
-                    // SFSpeechRecognizer 會持續回調部分結果
-                    if !transcription.isEmpty {
-                        self.logger.info("轉錄結果: \(transcription)")
-                        self.onTranscriptionResult?(.success(transcription))
+                        // 只要有轉錄內容就回報 (串流式更新)
+                        // SFSpeechRecognizer 會持續回調部分結果
+                        if !transcription.isEmpty {
+                            self.logger.info("轉錄結果: \(transcription)")
+                            self.onTranscriptionResult?(.success(transcription))
+                        }
+
+                        if result.isFinal {
+                            // 收到最終結果，取消 timeout 並清理資源
+                            self.logger.info("SFSpeechTranscriptionService: 收到 isFinal，清理資源")
+                            self.cleanupRecognition()
+                            return
+                        }
                     }
 
-                    if result.isFinal {
-                        // 收到最終結果，取消 timeout 並清理資源
-                        self.logger.info("SFSpeechTranscriptionService: 收到 isFinal，清理資源")
+                    // 處理錯誤
+                    if let error = error {
+                        // 檢查是否為「無語音」類型的錯誤
+                        let errorMessage = error.localizedDescription.lowercased()
+                        let noSpeechErrors = ["no speech detected", "speech unavailable", "nothing was recorded", "unable to find speech"]
+
+                        if noSpeechErrors.contains(where: { errorMessage.contains($0) }) {
+                            self.logger.info("未檢測到語音 (No speech detected)")
+                            // 視情況決定是否回報空字串，或忽略
+                        } else {
+                            self.logger.error("識別錯誤 (Recognition error): \(error.localizedDescription)")
+                            self.onTranscriptionResult?(.failure(error))
+                        }
                         self.cleanupRecognition()
-                        return
                     }
-                }
-
-                // 處理錯誤
-                if let error = error {
-                    // 檢查是否為「無語音」類型的錯誤
-                    let errorMessage = error.localizedDescription.lowercased()
-                    let noSpeechErrors = ["no speech detected", "speech unavailable", "nothing was recorded", "unable to find speech"]
-
-                    if noSpeechErrors.contains(where: { errorMessage.contains($0) }) {
-                        self.logger.info("未檢測到語音 (No speech detected)")
-                        // 視情況決定是否回報空字串，或忽略
-                    } else {
-                        self.logger.error("識別錯誤 (Recognition error): \(error.localizedDescription)")
-                        self.onTranscriptionResult?(.failure(error))
-                    }
-                    self.cleanupRecognition()
                 }
             }
         }

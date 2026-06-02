@@ -92,7 +92,15 @@ class ModelManager: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.init(filenameExtension: "bin")].compactMap { $0 }
+        // H-7 修復:顯式檢查 UTType,失敗時 logger.error 並 fallback 到 UTType.data。
+        // 原本 compactMap { $0 } 會在 UTType 為 nil 時靜默把 allowedContentTypes 設為空陣列,
+        // 導致 NSOpenPanel 拒絕所有檔案而使用者毫無頭緒。
+        if let binType = UTType(filenameExtension: "bin") {
+            panel.allowedContentTypes = [binType]
+        } else {
+            logger.error("UTType 解析 'bin' 失敗,fallback 到 UTType.data")
+            panel.allowedContentTypes = [.data]
+        }
         panel.message = "選擇 Whisper 模型檔案 (.bin)"
 
         panel.begin { [weak self] result in

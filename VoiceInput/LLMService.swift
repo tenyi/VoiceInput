@@ -14,6 +14,7 @@ enum LLMServiceError: LocalizedError {
     case networkError(Error)       // 網路錯誤
     case apiError(String)          // API 回傳錯誤
     case noContent                 // 無回應內容
+    case httpError(statusCode: Int, body: String?)  // C-4 修復:HTTP 狀態碼錯誤
 
     var errorDescription: String? {
         switch self {
@@ -27,6 +28,21 @@ enum LLMServiceError: LocalizedError {
             return "API 錯誤: \(message)"
         case .noContent:
             return "LLM 無回應內容"
+        case .httpError(let statusCode, let body):
+            // 友善的狀態碼說明,協助使用者排查 API Key / 額度 / 伺服器問題
+            let prefix: String
+            switch statusCode {
+            case 401: prefix = "認證失敗 (請檢查 API Key)"
+            case 403: prefix = "權限不足"
+            case 404: prefix = "端點不存在 (請檢查 URL 或模型名稱)"
+            case 429: prefix = "請求過於頻繁或額度用盡"
+            case 500...599: prefix = "伺服器錯誤"
+            default: prefix = "HTTP 錯誤"
+            }
+            if let body, !body.isEmpty {
+                return "\(prefix) (狀態碼 \(statusCode)): \(body)"
+            }
+            return "\(prefix) (狀態碼 \(statusCode))"
         }
     }
 }
@@ -47,19 +63,46 @@ class LLMService {
     /// - Returns: 正規化後的 URL 字串
     private func normalizeURL(_ urlString: String) -> String {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         // 如果已經有 scheme,直接返回
         if trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") {
             return trimmed
         }
-        
-        // 如果是 localhost 或 127.0.0.1,使用 http://
-        if trimmed.hasPrefix("localhost") || trimmed.hasPrefix("127.0.0.1") {
+
+        // H-1 修復:擴大本地/區域網路判定,涵蓋 RFC1918 私有 IP 與 .local 主機名,
+        // 避免自架 LLM (192.168.x.x、10.x.x.x、nas.local:11434 等) 被強制加上 https://
+        if Self.isLocalOrPrivateHost(trimmed) {
             return "http://\(trimmed)"
         }
-        
+
         // 其他情況使用 https://
         return "https://\(trimmed)"
+    }
+
+    /// 判斷是否為本地/區域網路位址(走 http 而非 https)
+    private static func isLocalOrPrivateHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+
+        // localhost / loopback
+        if lower.hasPrefix("localhost") || lower.hasPrefix("127.") {
+            return true
+        }
+        // mDNS 主機名 (.local)
+        if lower.hasSuffix(".local") {
+            return true
+        }
+        // RFC1918 私有 IPv4 位址:10.0.0.0/8、172.16.0.0/12、192.168.0.0/16
+        if lower.hasPrefix("10.") || lower.hasPrefix("192.168.") {
+            return true
+        }
+        if lower.hasPrefix("172.") {
+            // 172.16.0.0 - 172.31.255.255
+            let parts = lower.split(separator: ".")
+            if parts.count >= 2, let second = Int(parts[1]), (16...31).contains(second) {
+                return true
+            }
+        }
+        return false
     }
 
 
@@ -102,13 +145,39 @@ class LLMService {
     
     private func performRequest(_ request: URLRequest, parser: (Data) throws -> String) async throws -> String {
         do {
-            let (data, _) = try await networkProvider.data(for: request)
+            let (data, response) = try await networkProvider.data(for: request)
+            // C-4 修復:檢查 HTTP 狀態碼,避免 401/429/5xx 被誤判為 invalidResponse
+            if let httpResponse = response as? HTTPURLResponse,
+               !(200...299).contains(httpResponse.statusCode) {
+                let bodyMessage = Self.extractErrorMessage(from: data)
+                throw LLMServiceError.httpError(statusCode: httpResponse.statusCode, body: bodyMessage)
+            }
             return try parser(data)
         } catch let error as LLMServiceError {
             throw error
         } catch {
             throw LLMServiceError.networkError(error)
         }
+    }
+
+    /// 嘗試從 HTTP error body 解析錯誤訊息(支援 OpenAI / Anthropic 格式)
+    private static func extractErrorMessage(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        // OpenAI 格式: { "error": { "message": "..." } }
+        if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
+            return message
+        }
+        // Anthropic 格式: { "error": { "message": "..." } } (相同)
+        // 通用格式: { "message": "..." } 或 { "detail": "..." }
+        if let message = json["message"] as? String {
+            return message
+        }
+        if let detail = json["detail"] as? String {
+            return detail
+        }
+        return nil
     }
     
     private func parseOpenAILikeResponse(data: Data) throws -> String {
@@ -247,10 +316,14 @@ class LLMService {
     ) async throws -> String {
         var baseURL = url.isEmpty ? "http://localhost:11434" : normalizeURL(url)
         if baseURL.hasSuffix("/") { baseURL.removeLast() }
-        
-        // 確保不會重複拼接 v1 或 chat/completions
+
+        // H-2 修復:支援 Ollama 原生端點 (/api/chat),不再強制拼接 /v1/chat/completions
+        // Ollama 預設原生 API 為 /api/chat,Ollama OpenAI 相容層才走 /v1/chat/completions
+        let isNativeOllamaAPI = baseURL.hasSuffix("/api/chat")
         let endpoint: String
-        if baseURL.hasSuffix("/v1/chat/completions") {
+        if isNativeOllamaAPI {
+            endpoint = baseURL
+        } else if baseURL.hasSuffix("/v1/chat/completions") {
             endpoint = baseURL
         } else if baseURL.hasSuffix("/v1") {
             endpoint = "\(baseURL)/chat/completions"
@@ -266,6 +339,7 @@ class LLMService {
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        // 原生 Ollama 與 OpenAI 相容層的 body 格式相同(都是 messages 陣列)
         let body: [String: Any] = [
             "model": modelName,
             "messages": [
@@ -277,6 +351,8 @@ class LLMService {
 
         // 如果序列化失敗，向上拋出明確錯誤而非發送空 body
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        // 原生 Ollama 與 OpenAI 相容層回應格式相同(都有 choices[0].message.content)
+        // 因此複用 parseOpenAILikeResponse
         return try await performRequest(request, parser: parseOpenAILikeResponse)
     }
 

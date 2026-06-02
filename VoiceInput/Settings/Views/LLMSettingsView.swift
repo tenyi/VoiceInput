@@ -20,6 +20,8 @@ struct LLMSettingsView: View {
     @State private var showingAddFromManager: Bool = false
     /// Prompt 文字 (用於編輯，若有自訂則顯示自訂值，否則顯示預設值)
     @State private var promptText: String = ""
+    // H-3 修復:debounce promptText 寫入,避免每按鍵觸發 AppStorage setter 與磁碟寫入
+    @State private var promptWriteTask: Task<Void, Never>?
 
     // 測試相關狀態
     @State private var isTesting: Bool = false
@@ -254,13 +256,21 @@ struct LLMSettingsView: View {
                     .frame(height: 80)
                     .font(.system(.body, design: .monospaced))
                     .onChange(of: promptText) { _, newValue in
-                        let valueToStore = newValue == LLMSettingsViewModel.defaultLLMPrompt ? "" : newValue
-                        llmSettings.llmPrompt = valueToStore
+                        // H-3 修復:debounce 300ms 寫入,使用者連續打字時不會每按鍵觸發磁碟寫入
+                        promptWriteTask?.cancel()
+                        promptWriteTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 300_000_000)
+                            guard !Task.isCancelled else { return }
+                            let valueToStore = newValue == LLMSettingsViewModel.defaultLLMPrompt ? "" : newValue
+                            llmSettings.llmPrompt = valueToStore
+                        }
                     }
 
                 HStack {
                     Button(String(localized: "llm.prompt.resetDefault")) {
                         promptText = LLMSettingsViewModel.defaultLLMPrompt
+                        // 重設按鈕為一次性操作,直接寫入避免被 debounce 拖延
+                        promptWriteTask?.cancel()
                         llmSettings.llmPrompt = ""
                     }
                     .buttonStyle(.link)

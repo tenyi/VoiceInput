@@ -46,6 +46,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 確保應用程式成為活躍應用程式
         NSApp.activate(ignoringOtherApps: true)
 
+        // H-8 修復:在應用程式完全啟動後才啟動快捷鍵監聽,
+        // 避免 static let sharedViewModel 在 init 階段就建立 CGEventTap,
+        // 在 App 還沒準備好時接收鍵盤事件。
+        Self.sharedViewModel.startHotkeyMonitoring()
+
         // 建立並顯示設定視窗
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.showSettingsWindow()

@@ -215,7 +215,11 @@ class VoiceInputViewModel: ObservableObject {
 
         // 請求必要的權限
         audioEngine.checkPermission { [weak self] granted in
-            self?.permissionGranted = granted
+            // H-9 修復:callback 不保證在主執行緒觸發,包裝為 @MainActor Task
+            // 以安全存取 @Published 屬性 permissionGranted
+            Task { @MainActor [weak self] in
+                self?.permissionGranted = granted
+            }
         }
     }
 
@@ -261,6 +265,13 @@ class VoiceInputViewModel: ObservableObject {
             }
         }
 
+        // H-8 修復:不在 init 內呼叫 startMonitoring(),
+        // 改由 AppDelegate.applicationDidFinishLaunching 顯式啟動,
+        // 避免 static let 初始化早於 applicationDidFinishLaunching 導致 CGEventTap 在 App 還沒準備好時啟動。
+    }
+
+    /// H-8 修復:由 AppDelegate.applicationDidFinishLaunching 呼叫,顯式啟動快捷鍵監聽。
+    func startHotkeyMonitoring() {
         hotkeyManager.startMonitoring()
     }
 
@@ -292,8 +303,11 @@ class VoiceInputViewModel: ObservableObject {
         // 檢查權限
         guard audioEngine.permissionGranted else {
             permissionManager.requestAllPermissionsIfNeeded { [weak self] granted in
-                if granted {
-                    self?.startRecording()
+                // H-9 修復:completion 不保證在主執行緒,包裝為 @MainActor Task
+                Task { @MainActor [weak self] in
+                    if granted {
+                        self?.startRecording()
+                    }
                 }
             }
             return

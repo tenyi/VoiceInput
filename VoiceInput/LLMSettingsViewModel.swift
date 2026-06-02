@@ -60,17 +60,19 @@ struct BuiltInProviderSettings: Codable {
 }
 
 /// 管理 LLM 相關設定與提供者
-class LLMSettingsViewModel: ObservableObject {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "LLMSettingsViewModel")
-    
+@MainActor
+final class LLMSettingsViewModel: ObservableObject {
+    // H-4 修復:Logger 本身是 Sendable,標記 nonisolated 即可在其他 actor 使用
+    nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "LLMSettingsViewModel")
+
     /// 用於延遲寫入 Keychain，避免每打一個字就寫一次
     private let saveAPIKeySubject = PassthroughSubject<(String, LLMProvider, String?), Never>()
     private var cancellables = Set<AnyCancellable>()
-    
+
     @Published var keychainErrorMessage: String?
-    
+
     // MARK: - AppStorage 設定
-    
+
     @AppStorage("llmProvider") var llmProvider: String = LLMProvider.openAI.rawValue {
         didSet {
             // 切換 Provider 時，我們只處理非敏感資料的載入。
@@ -80,7 +82,7 @@ class LLMSettingsViewModel: ObservableObject {
             loadAPIKey(for: provider, customId: selectedCustomProviderId)
         }
     }
-    
+
     @AppStorage("llmEnabled") var llmEnabled: Bool = false
 
     @AppStorage("llmURL") var llmURL: String = "" {
@@ -93,13 +95,13 @@ class LLMSettingsViewModel: ObservableObject {
             saveAPIKeySubject.send((llmAPIKey, currentLLMProvider, selectedCustomProviderId))
         }
     }
-    
+
     @AppStorage("llmModel") var llmModel: String = "" {
         didSet { saveCurrentBuiltInProviderSettings() }
     }
-    
+
     @AppStorage("llmPrompt") var llmPrompt: String = ""
-    
+
     @AppStorage("selectedCustomProviderId") var selectedCustomProviderId: String? {
         didSet {
             let provider = currentLLMProvider
@@ -107,15 +109,15 @@ class LLMSettingsViewModel: ObservableObject {
             loadAPIKey(for: provider, customId: selectedCustomProviderId)
         }
     }
-    
+
     @AppStorage("customProvidersData") private var customProvidersData: Data = Data()
     @Published var customProviders: [CustomLLMProvider] = []
-    
+
     @AppStorage("builtInProviderSettingsData") private var builtInProviderSettingsData: Data = Data()
     private var builtInProviderSettings: [String: BuiltInProviderSettings] = [:]
 
     static let defaultLLMPrompt = "你是專業的校稿員，只做以下兩件事：1. 修正錯字。 2. 根據語氣加入適當的標點符號。 請直接輸出修正後的文字，不要包含任何其他說明或解釋。"
-    
+
     private let keychain: KeychainProtocol
     private let userDefaults: UserDefaults
     private var isInternalUpdating = false
@@ -123,30 +125,32 @@ class LLMSettingsViewModel: ObservableObject {
     init(keychain: KeychainProtocol = KeychainHelper.shared, userDefaults: UserDefaults = .standard) {
         self.keychain = keychain
         self.userDefaults = userDefaults
-        
+
         setupAPIKeySaving()
         loadCustomProviders()
         loadBuiltInProviderSettingsData()
-        
+
         // 為了避免 AppStorage 尚未掛載完成導致的競態條件，手動讀取 UserDefaults.standard 取得真正的值
         let realProviderString = userDefaults.string(forKey: "llmProvider") ?? LLMProvider.openAI.rawValue
         let realCustomId = userDefaults.string(forKey: "selectedCustomProviderId")
-        
+
         let initialProvider = LLMProvider(rawValue: realProviderString) ?? .openAI
-        let effectiveProvider = (realCustomId != nil && realProviderString == "Custom") ? .custom : initialProvider
-        
+        // H-4 修復:用 enum case 名比對而非裸字串
+        let effectiveProvider = (realCustomId != nil && realProviderString == LLMProvider.custom.rawValue) ? .custom : initialProvider
+
         // 根據剛才手動抓到的真實值來進行配置（這時候 selectedCustomProviderId 哪怕還沒 didSet，我們也已經掌握到其確實的值）
         loadBuiltInProviderSettings(for: effectiveProvider)
         loadAPIKey(for: effectiveProvider, customId: realCustomId)
-        
+
         // 遷移防錯
         loadLegacyLLMAPIKeyIfNeeded()
     }
-    
+
     private func setupAPIKeySaving() {
         saveAPIKeySubject
             .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main)
             .sink { [weak self] (key, provider, customId) in
+                // H-4 修復:LLMSettingsViewModel 已標 @MainActor,sink 內可直接同步呼叫
                 self?.saveAPIKey(key: key, provider: provider, customId: customId)
             }
             .store(in: &cancellables)
@@ -155,7 +159,8 @@ class LLMSettingsViewModel: ObservableObject {
     // MARK: - Provider 計算屬性
     
     var currentLLMProvider: LLMProvider {
-        if selectedCustomProviderId != nil && llmProvider == "Custom" {
+        // H-4 修復:用 enum rawValue 比對,避免 enum 改名時這裡 break
+        if selectedCustomProviderId != nil && llmProvider == LLMProvider.custom.rawValue {
             return .custom
         }
         return LLMProvider(rawValue: llmProvider) ?? .openAI
@@ -313,13 +318,10 @@ class LLMSettingsViewModel: ObservableObject {
                 service: "com.tenyi.voiceinput",
                 account: account
             )
-            DispatchQueue.main.async {
-                self.keychainErrorMessage = nil
-            }
+            // H-4 修復:已標 @MainActor,直接同步設定即可,不再需要 DispatchQueue.main.async
+            keychainErrorMessage = nil
         } catch {
-            DispatchQueue.main.async {
-                self.keychainErrorMessage = error.localizedDescription
-            }
+            keychainErrorMessage = error.localizedDescription
             logger.error("儲存 API Key 失敗: \(error.localizedDescription)")
         }
     }
@@ -333,18 +335,18 @@ class LLMSettingsViewModel: ObservableObject {
         do {
             if let savedKey = try keychain.read(service: "com.tenyi.voiceinput", account: account) {
                 llmAPIKey = savedKey
-                DispatchQueue.main.async { self.keychainErrorMessage = nil }
+                keychainErrorMessage = nil
             } else if let legacyKey = try keychain.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), provider == .openAI {
                 llmAPIKey = legacyKey
                 saveAPIKey(key: legacyKey, provider: provider, customId: customId)
-                DispatchQueue.main.async { self.keychainErrorMessage = nil }
+                keychainErrorMessage = nil
             } else {
                 llmAPIKey = ""
-                DispatchQueue.main.async { self.keychainErrorMessage = nil }
+                keychainErrorMessage = nil
             }
         } catch {
             llmAPIKey = ""
-            DispatchQueue.main.async { self.keychainErrorMessage = error.localizedDescription }
+            keychainErrorMessage = error.localizedDescription
             logger.error("讀取 API Key 失敗: \(error.localizedDescription)")
         }
     }
@@ -357,11 +359,25 @@ class LLMSettingsViewModel: ObservableObject {
     func resolveEffectiveConfiguration() -> EffectiveLLMConfiguration {
         let providerString = userDefaults.string(forKey: "llmProvider") ?? LLMProvider.openAI.rawValue
         let customId = userDefaults.string(forKey: "selectedCustomProviderId")
-        let requestProvider = (customId != nil && providerString == "Custom") ? .custom : (LLMProvider(rawValue: providerString) ?? .openAI)
+        // H-4 修復:用 enum case 名比對
+        let requestProvider = (customId != nil && providerString == LLMProvider.custom.rawValue) ? .custom : (LLMProvider(rawValue: providerString) ?? .openAI)
         let exactAccountName = providerAPIKeyAccount(for: requestProvider, customId: customId)
-        
-        // 忽略讀取失敗，回退為空字串，因為設定時已經反映給 UI 了
-        let exactAPIKey = (try? keychain.read(service: "com.tenyi.voiceinput", account: exactAccountName)) ?? ""
+
+        // H-5 修復:Keychain 讀取失敗時,記錄錯誤訊息而非靜默吞掉。
+        // 失敗時仍回退為空字串(讓請求 401,使用者能從錯誤訊息判斷是金鑰問題)
+        // 但同時把錯誤反映到 keychainErrorMessage,UI 可顯示。
+        let exactAPIKey: String
+        do {
+            exactAPIKey = try keychain.read(service: "com.tenyi.voiceinput", account: exactAccountName) ?? ""
+            // 成功時清除先前的錯誤訊息(若有)
+            if keychainErrorMessage != nil {
+                keychainErrorMessage = nil
+            }
+        } catch {
+            exactAPIKey = ""
+            keychainErrorMessage = "無法讀取 API Key: \(error.localizedDescription)"
+            logger.error("resolveEffectiveConfiguration 讀取 API Key 失敗: \(error.localizedDescription)")
+        }
 
         return LLMSettingsViewModel.resolveEffectiveLLMConfiguration(
             prompt: llmPrompt,
