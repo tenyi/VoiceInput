@@ -21,7 +21,10 @@ struct HistorySettingsView: View {
                                 Spacer()
 
                                 Button {
-                                    historyManager.copyHistoryText(item.text)
+                                    // M-4 修復:剪貼簿操作直接在 UI 層處理
+                                    let pasteboard = NSPasteboard.general
+                                    pasteboard.clearContents()
+                                    pasteboard.setString(item.text, forType: .string)
                                 } label: {
                                     Label(String(localized: "history.copy"), systemImage: "doc.on.doc")
                                 }

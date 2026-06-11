@@ -18,6 +18,10 @@ enum AppState {
 /// 應用程式狀態訊息常數
 enum AppStatusMessage {
     static let waitingForInput = "等待輸入..."
+    static let listening = "聆聽中..."
+    static let transcribing = "轉寫中..."
+    static let enhancing = "增強中..."
+    static let recognitionErrorPrefix = "識別錯誤："
     static let missingWhisperModel = "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)"
     static let recordingFailedPrefix = "錄音啟動失敗："
 }
@@ -61,6 +65,9 @@ class VoiceInputViewModel: ObservableObject {
     }
     
     private let userDefaults: UserDefaults
+
+    /// M-5 修復:歷史管理器透過注入,測試時可替換
+    private let historyManager: HistoryManager
 
     // MARK: - Speech Engine 選項
 
@@ -145,11 +152,13 @@ class VoiceInputViewModel: ObservableObject {
         hotkeyManager: HotkeyManagerProtocol,
         audioEngine: AudioEngineProtocol,
         inputSimulator: InputSimulatorProtocol,
+        historyManager: HistoryManager = AppDelegate.sharedHistoryManager,
         userDefaults: UserDefaults = .standard
     ) {
         self.hotkeyManager = hotkeyManager
         self.audioEngine = audioEngine
         self.inputSimulator = inputSimulator
+        self.historyManager = historyManager
         self.userDefaults = userDefaults
         
         // Initialize properties from UserDefaults
@@ -419,8 +428,8 @@ class VoiceInputViewModel: ObservableObject {
     private func finishTranscribing() {
         // 檢查是否有有效文字（排除空字串和錯誤訊息）
         let hasValidText = !transcribedText.isEmpty &&
-                          !transcribedText.hasPrefix("識別錯誤：") &&
-                          transcribedText != "等待輸入..."
+                          !transcribedText.hasPrefix(AppStatusMessage.recognitionErrorPrefix) &&
+                          transcribedText != AppStatusMessage.waitingForInput
 
         // 有有效文字的情況
         if hasValidText {
@@ -476,7 +485,7 @@ class VoiceInputViewModel: ObservableObject {
                 await MainActor.run { [weak self] in
                     // 若修正失敗，保留原文繼續執行，並記錄錯誤訊息
                     self?.lastLLMError = error.localizedDescription
-                    self?.logger.error("LLM 修正失敗: \\(error.localizedDescription)")
+                    self?.logger.error("LLM 修正失敗: \(error.localizedDescription)")
                     
                     completion()
                 }
@@ -487,11 +496,11 @@ class VoiceInputViewModel: ObservableObject {
     /// 執行插入文字並隱藏視窗
     private func proceedToInsertAndHide() {
         Task { @MainActor in
-            AppDelegate.sharedHistoryManager.addHistoryIfNeeded(transcribedText)
+            historyManager.addHistoryIfNeeded(transcribedText)
         }
 
         // 自動插入文字到當前應用程式
-        if autoInsertText && !transcribedText.isEmpty && transcribedText != "等待輸入..." {
+        if autoInsertText && !transcribedText.isEmpty && transcribedText != AppStatusMessage.waitingForInput {
             // 檢查輔助功能權限
             // 注意：PermissionManager completion 不保證在主執行緒回呼，
             // 因此用 Task @MainActor 確保後續存取 @MainActor 屬性的安全性。

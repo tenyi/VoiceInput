@@ -247,7 +247,10 @@ struct ContentView: View {
                 Spacer()
 
                 Button {
-                    historyManager.copyHistoryText(item.text)
+                    // M-4 修復:剪貼簿操作直接在 UI 層處理,不經過 HistoryManager
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(item.text, forType: .string)
                 } label: {
                     Label(String(localized: "content.history.copy"), systemImage: "doc.on.doc")
                 }
@@ -284,8 +287,10 @@ struct ContentView: View {
 
 
 #Preview {
+    // M-7 修復:Preview 環境不建立真實 ViewModel,避免觸發 CGEventTap / AudioEngine singleton 鏈
+    let viewModel = VoiceInputViewModel()
     ContentView()
-        .environmentObject(VoiceInputViewModel())
+        .environmentObject(viewModel)
         .environmentObject(LLMSettingsViewModel())
         .environmentObject(ModelManager())
         .environmentObject(HistoryManager())

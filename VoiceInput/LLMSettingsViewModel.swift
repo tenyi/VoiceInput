@@ -67,6 +67,8 @@ final class LLMSettingsViewModel: ObservableObject {
 
     /// 用於延遲寫入 Keychain，避免每打一個字就寫一次
     private let saveAPIKeySubject = PassthroughSubject<(String, LLMProvider, String?), Never>()
+    /// L-6 修復:追蹤最後 send 的值,讓 flush 時能同步寫入
+    private var lastPendingAPIKey: (key: String, provider: LLMProvider, customId: String?)?
     private var cancellables = Set<AnyCancellable>()
 
     @Published var keychainErrorMessage: String?
@@ -93,6 +95,7 @@ final class LLMSettingsViewModel: ObservableObject {
         didSet {
             guard !isInternalUpdating else { return }
             saveAPIKeySubject.send((llmAPIKey, currentLLMProvider, selectedCustomProviderId))
+            lastPendingAPIKey = (llmAPIKey, currentLLMProvider, selectedCustomProviderId)
         }
     }
 
@@ -151,9 +154,18 @@ final class LLMSettingsViewModel: ObservableObject {
             .debounce(for: .seconds(0.5), scheduler: DispatchQueue.main)
             .sink { [weak self] (key, provider, customId) in
                 // H-4 修復:LLMSettingsViewModel 已標 @MainActor,sink 內可直接同步呼叫
+                self?.lastPendingAPIKey = nil
                 self?.saveAPIKey(key: key, provider: provider, customId: customId)
             }
             .store(in: &cancellables)
+    }
+
+    /// L-6 修復:同步寫入 debounce 中尚未 flush 的 API Key。
+    /// 在 applicationWillTerminate 的 _exit(0) 之前呼叫,避免遺失最後一次輸入。
+    func flushPendingKeychainWrites() {
+        guard let pending = lastPendingAPIKey else { return }
+        lastPendingAPIKey = nil
+        saveAPIKey(key: pending.key, provider: pending.provider, customId: pending.customId)
     }
     
     // MARK: - Provider 計算屬性

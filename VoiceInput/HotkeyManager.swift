@@ -148,7 +148,8 @@ class HotkeyManager: HotkeyManagerProtocol {
                 break
             }
         } else {
-            // keyDown / keyUp 事件（一般按鍵，目前保留擴充彈性）
+            // L-4 備註:keyDown/keyUp 分支目前未觸發(所有快捷鍵都走 flagsChanged 路徑)。
+            // 保留此分支供未來通用按鍵快捷鍵擴充使用。
             guard keyCode == Int64(currentHotkey.scancode) else { return }
             let isNowDown = (type == .keyDown)
             if isNowDown != isTargetKeyDown {

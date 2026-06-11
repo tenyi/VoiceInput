@@ -49,7 +49,7 @@ actor WhisperContext {
         params.single_segment = false
         params.temperature = 0.2
         params.offset_ms = 0
-        params.n_threads = Int32(max(1, min(8, cpuCount() - 2)))
+        params.n_threads = Int32(Self.pCoreCount)
 
         if let code = whisperLanguageCode(from: language) {
             languageCString = Array(code.utf8CString)
@@ -96,7 +96,13 @@ actor WhisperContext {
         }
     }
 
-    private func cpuCount() -> Int {
-        ProcessInfo.processInfo.processorCount
-    }
+    /// L-2 修復:使用 Apple Silicon P-core 數量作為 whisper 執行緒數,
+    /// 而非全部核心 - 2。whisper.cpp 主要受計算瓶頸限制,P-core 效能遠優於 E-core。
+    private static let pCoreCount: Int = {
+        var size = MemoryLayout<Int32>.size
+        var count: Int32 = 0
+        sysctlbyname("hw.perflevel0.physicalcpu", &count, &size, nil, 0)
+        // Fallback:若 sysctl 回傳 0 (非 Apple Silicon),使用全部核心 - 2
+        return count > 0 ? Int(count) : max(1, ProcessInfo.processInfo.processorCount - 2)
+    }()
 }

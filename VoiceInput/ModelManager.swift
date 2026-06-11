@@ -36,6 +36,8 @@ class ModelManager: ObservableObject {
 
     /// 模型導入剩餘時間文字
     @Published var modelImportRemainingTime: String = ""
+    /// H-2 修復:保存失敗時通知 UI 層
+    @Published var lastSaveError: String?
 
     /// 模型儲存目錄
     let modelsDirectory: URL
@@ -68,10 +70,13 @@ class ModelManager: ObservableObject {
     func loadModels() {
         guard !importedModelsData.isEmpty else { return }
         do {
-            importedModels = try JSONDecoder().decode([ImportedModel].self, from: importedModelsData)
+            // H-2 修復:decode 成功才取代,失敗時保留 importedModels 既有資料
+            let decoded = try JSONDecoder().decode([ImportedModel].self, from: importedModelsData)
+            importedModels = decoded
             logger.info("已載入 \(self.importedModels.count) 個已導入的模型")
         } catch {
             logger.error("無法載入已導入的模型列表: \(error.localizedDescription)")
+            lastSaveError = "模型列表讀取失敗: \(error.localizedDescription)"
         }
     }
 
@@ -81,6 +86,7 @@ class ModelManager: ObservableObject {
             importedModelsData = try JSONEncoder().encode(importedModels)
         } catch {
             logger.error("無法保存模型列表: \(error.localizedDescription)")
+            lastSaveError = "模型列表保存失敗: \(error.localizedDescription)"
         }
     }
 

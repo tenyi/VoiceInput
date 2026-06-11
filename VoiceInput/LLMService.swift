@@ -52,6 +52,9 @@ class LLMService {
     /// 單例模式，使用 let 防止外部替換
     static let shared = LLMService()
 
+    /// M-1 修復:Anthropic API 版本號抽為常數,避免 magic string 散落
+    private static let anthropicAPIVersion = "2023-06-01"
+
     private let networkProvider: NetworkProviderProtocol
 
     init(networkProvider: NetworkProviderProtocol = URLSession.shared) {
@@ -77,6 +80,12 @@ class LLMService {
 
         // 其他情況使用 https://
         return "https://\(trimmed)"
+    }
+
+    /// 測試專用入口:把 private `normalizeURL` 暴露成 internal 讓 @testable 測試能呼叫。
+    /// 正式 API 路徑(`callOpenAI` / `callOllama` 等)會自己呼叫 private 版本。
+    func normalizeURLForTesting(_ url: String) -> String {
+        return normalizeURL(url)
     }
 
     /// 判斷是否為本地/區域網路位址(走 http 而非 https)
@@ -167,17 +176,29 @@ class LLMService {
         }
         // OpenAI 格式: { "error": { "message": "..." } }
         if let error = json["error"] as? [String: Any], let message = error["message"] as? String {
-            return message
+            return sanitizeErrorMessage(message)
         }
         // Anthropic 格式: { "error": { "message": "..." } } (相同)
         // 通用格式: { "message": "..." } 或 { "detail": "..." }
         if let message = json["message"] as? String {
-            return message
+            return sanitizeErrorMessage(message)
         }
         if let detail = json["detail"] as? String {
-            return detail
+            return sanitizeErrorMessage(detail)
         }
         return nil
+    }
+
+    /// 截斷過長的錯誤訊息並移除 markdown 格式標記，避免 UI 顯示異常
+    private static func sanitizeErrorMessage(_ message: String) -> String {
+        var result = message
+        // 移除 markdown code block 標記
+        result = result.replacingOccurrences(of: "```", with: "")
+        // 截斷至 200 字元，避免過長的錯誤訊息塞爆 UI
+        if result.count > 200 {
+            result = String(result.prefix(200)) + "…"
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private func parseOpenAILikeResponse(data: Data) throws -> String {
@@ -225,14 +246,20 @@ class LLMService {
 
     /// 過濾 LLM 回傳內容中的<think>...</think> 標籤及其思考過程
     /// 某些模型（如 Claude）會在回傳時夾帶思考過程，這不是實際結果
+    // MARK: - Think Tag Regex
+
+    /// L-3 修復:預編譯 think tag regex,避免每次呼叫 stripThinkTags 都重新編譯
+    private static let thinkTagRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(pattern: "<think>[\\s\\S]*?</think>", options: [])
+    }()
+
+    /// 過濾 LLM 回傳內容中的<think>...</think> 標籤及其思考過程
+    /// 某些模型（如 Claude）會在回傳時夾帶思考過程，這不是實際結果
     /// - Parameter text: 原始回傳文字
     /// - Returns: 過濾並去除多餘空白後的文字
     private func stripThinkTags(_ text: String) -> String {
-        // 使用正則表達式移除<think>...</think>標籤及其內容
-        let pattern = "<think>[\\s\\S]*?</think>"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let regex = Self.thinkTagRegex
         let range = NSRange(text.startIndex..., in: text)
         let result = regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -290,7 +317,7 @@ class LLMService {
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue(Self.anthropicAPIVersion, forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let body: [String: Any] = [

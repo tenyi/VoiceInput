@@ -1,7 +1,6 @@
 import Foundation
 import Combine
 import os
-import AppKit
 
 /// 轉錄歷史紀錄單元
 struct TranscriptionHistoryItem: Identifiable, Codable, Equatable {
@@ -14,6 +13,8 @@ struct TranscriptionHistoryItem: Identifiable, Codable, Equatable {
 @MainActor
 class HistoryManager: ObservableObject {
     @Published var transcriptionHistory: [TranscriptionHistoryItem] = []
+    /// H-2 修復:保存失敗時通知 UI 層
+    @Published var lastSaveError: String?
     
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "HistoryManager")
     
@@ -67,13 +68,14 @@ class HistoryManager: ObservableObject {
             try fileSystem.write(data, to: fileURL, options: .atomic)
         } catch {
             logger.error("無法保存轉錄歷史: \(error.localizedDescription)")
+            lastSaveError = "歷史紀錄保存失敗: \(error.localizedDescription)"
         }
     }
     
     /// 添加轉錄歷史（僅保留最近 10 筆）
     func addHistoryIfNeeded(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "等待輸入...", !trimmed.hasPrefix("識別錯誤：") else {
+        guard !trimmed.isEmpty, trimmed != AppStatusMessage.waitingForInput, !trimmed.hasPrefix(AppStatusMessage.recognitionErrorPrefix) else {
             return
         }
 
@@ -89,12 +91,5 @@ class HistoryManager: ObservableObject {
     func deleteHistoryItem(_ item: TranscriptionHistoryItem) {
         transcriptionHistory.removeAll { $0.id == item.id }
         saveTranscriptionHistory()
-    }
-
-    /// 複製歷史文字到剪貼簿
-    func copyHistoryText(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
     }
 }

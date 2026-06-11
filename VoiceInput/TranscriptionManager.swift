@@ -108,7 +108,7 @@ class TranscriptionManager: ObservableObject {
                     self?.transcribedText = processedText
                     self?.logger.info("轉錄成功: \(processedText.prefix(50))...")
                 case .failure(let error):
-                    self?.transcribedText = "識別錯誤：\(error.localizedDescription)"
+                    self?.transcribedText = "\(AppStatusMessage.recognitionErrorPrefix)\(error.localizedDescription)"
                     self?.logger.error("轉錄失敗: \(error.localizedDescription)")
                 }
 

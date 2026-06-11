@@ -185,10 +185,11 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
             session.stopRunning()
         }
 
-        self.bufferCallback = callback
-        
+        // H-3 修復:在所有可能 throw 的步驟完成後才設定 callback,
+        // 避免失敗時留下 dangling callback (閉包捕獲的 self 造成記憶體洩漏)。
+
         let session = AVCaptureSession()
-        
+
         // 找到指定的實體麥克風裝置
         guard let device = getSelectedDevice() else {
             logger.error("無法取得指定的音訊輸入裝置")
@@ -216,6 +217,8 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
 
         self.captureSession = session
         self.audioDataOutput = audioOutput
+        // H-3 修復:所有可能 throw 的步驟都通過後才設定 callback
+        self.bufferCallback = callback
 
         session.startRunning()
         

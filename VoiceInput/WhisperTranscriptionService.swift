@@ -75,8 +75,6 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     /// C-2 修復：等待 in-flight buffer 處理的逾時秒數
     nonisolated private let stopInFlightTimeout: TimeInterval = 2.0
 
-    nonisolated private let audioProcessingQueue = DispatchQueue(label: "com.tenyi.voiceinput.audioprocessing", qos: .userInitiated)
-
     private var isRunning = false
     private var isTranscribing = false
     private var pendingFinalTranscription = false
@@ -140,6 +138,8 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
                 self.logger.info("Whisper 模型非同步載入成功")
             } catch {
                 self.modelLoadError = error
+                // L-5 修復:載入失敗時重置 isRunning,避免下次 start() 認為引擎仍在運行
+                self.isRunning = false
                 self.logger.error("Whisper 模型非同步載入失敗: \(error.localizedDescription)")
                 // 此時 callback 已由 TranscriptionManager.setupTranscriptionCallback 設定,
                 // 不再像舊版 init 那樣「默默丟掉」錯誤。
@@ -199,40 +199,39 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     }
 
     nonisolated func process(buffer: AVAudioPCMBuffer) {
-        // 使用獨立的背景序列佇列處理，避免阻塞 CoreAudio 的 tap 執行緒
-        audioProcessingQueue.async { [weak self] in
-            // 將整個 pipeline 切到 MainActor,以便正確追蹤 in-flight 計數
-            // 並確保 buffer append 的執行緒隔離。
-            Task { @MainActor [weak self] in
-                guard let self = self else { return }
+        // H-1 修復:移除多餘的 audioProcessingQueue 中繼 hop。
+        // 原本 CoreAudio tap → audioProcessingQueue.async → Task @MainActor 是雙重 hop,
+        // 但 audioProcessingQueue 本身沒做任何計算,只是無謂排程延遲。
+        // Task 建立成本極低,直接從 tap 執行緒建立 Task @MainActor 即可。
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
 
-                // C-2 修復:追蹤 in-flight 數量,讓 stop() 能等待所有
-                // 已在轉換管線中的 buffer 完成 append 後再快照。
-                self.inFlightProcessingCount += 1
-                defer { self.inFlightProcessingCount -= 1 }
+            // C-2 修復:追蹤 in-flight 數量,讓 stop() 能等待所有
+            // 已在轉換管線中的 buffer 完成 append 後再快照。
+            self.inFlightProcessingCount += 1
+            defer { self.inFlightProcessingCount -= 1 }
 
-                // 轉換音訊格式至 16kHz 單聲道 Float
-                guard let converted = await self.audioConverterActor.convertTo16kHz(buffer: buffer), !converted.isEmpty else {
-                    return
-                }
+            // 轉換音訊格式至 16kHz 單聲道 Float
+            guard let converted = await self.audioConverterActor.convertTo16kHz(buffer: buffer), !converted.isEmpty else {
+                return
+            }
 
-                // C-2 修復:即使 isRunning 已被 stop() 設為 false,仍 append buffer。
-                // 因為這些 buffer 是在 stop() 之前就已進入管線,丟掉會造成資料缺漏。
-                // stop() 會等待 inFlightProcessingCount 歸零再快照。
-                self.accumulatedBuffer.append(contentsOf: converted)
+            // C-2 修復:即使 isRunning 已被 stop() 設為 false,仍 append buffer。
+            // 因為這些 buffer 是在 stop() 之前就已進入管線,丟掉會造成資料缺漏。
+            // stop() 會等待 inFlightProcessingCount 歸零再快照。
+            self.accumulatedBuffer.append(contentsOf: converted)
 
-                // 只有仍在錄音時才觸發部分轉寫(避免 stop 後仍跑昂貴的 whisper)
-                guard self.isRunning else { return }
+            // 只有仍在錄音時才觸發部分轉寫(避免 stop 後仍跑昂貴的 whisper)
+            guard self.isRunning else { return }
 
-                // H-6 修復:模型尚未載入完成時,只 buffer 不觸發轉錄(避免 notInitialized 錯誤)
-                guard self.isModelReady else { return }
+            // H-6 修復:模型尚未載入完成時,只 buffer 不觸發轉錄(避免 notInitialized 錯誤)
+            guard self.isModelReady else { return }
 
-                let duration = Double(self.accumulatedBuffer.count) / Double(self.sampleRate)
-                let shouldStartChunk = duration > self.partialTranscriptionMinDuration && !self.isTranscribing
-                if shouldStartChunk {
-                    Task {
-                        await self.transcribeChunkIfNeeded()
-                    }
+            let duration = Double(self.accumulatedBuffer.count) / Double(self.sampleRate)
+            let shouldStartChunk = duration > self.partialTranscriptionMinDuration && !self.isTranscribing
+            if shouldStartChunk {
+                Task {
+                    await self.transcribeChunkIfNeeded()
                 }
             }
         }

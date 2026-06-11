@@ -10,7 +10,7 @@ class WindowManager: ObservableObject {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "WindowManager")
 
     private var floatingWindow: NSPanel?
-    private var hostingController: NSHostingController<AnyView>?
+    private var hostingController: NSHostingController<FloatingPanelView>?
 
     // 注入 ViewModel (需要在 VoiceInputApp 初始化時設定)
     var viewModel: VoiceInputViewModel?
@@ -70,12 +70,12 @@ class WindowManager: ObservableObject {
             return
         }
         
-        // 建立 SwiftUI 視圖，並注入環境物件
-        let contentView = FloatingPanelView()
-            .environmentObject(viewModel)
-            
-        // 使用 AnyView 封裝以適配 NSHostingController
-        let hostingController = NSHostingController(rootView: AnyView(contentView))
+        // 建立 SwiftUI 視圖
+        let contentView = FloatingPanelView(viewModel: viewModel)
+
+        // M-2 修復:直接用具型別 NSHostingController<FloatingPanelView>,
+        // 避免 AnyView type erasure 造成不必要的 diff 開銷
+        let hostingController = NSHostingController(rootView: contentView)
         self.hostingController = hostingController
         
         // 初始化 NSPanel
@@ -103,7 +103,7 @@ class WindowManager: ObservableObject {
 
 /// 浮動面板的 UI (SwiftUI)
 struct FloatingPanelView: View {
-    @EnvironmentObject var viewModel: VoiceInputViewModel
+    @ObservedObject var viewModel: VoiceInputViewModel
     
     private var panelMinWidth: CGFloat {
         if viewModel.lastLLMError != nil {
@@ -200,26 +200,26 @@ struct FloatingPanelView: View {
     private var normalStatusView: some View {
         switch viewModel.appState {
         case .idle:
-            Text("等待輸入...")
+            Text(AppStatusMessage.waitingForInput)
                 .foregroundColor(.white)
                 .font(.system(size: 14, weight: .medium))
 
         case .recording:
-            Text(viewModel.transcribedText.isEmpty ? "聆聽中..." : viewModel.transcribedText)
+            Text(viewModel.transcribedText.isEmpty ? AppStatusMessage.listening : viewModel.transcribedText)
                 .foregroundColor(.white)
                 .font(.system(size: 14, weight: .medium))
                 .lineLimit(2)
                 .frame(maxWidth: 300, alignment: .leading)
 
         case .transcribing:
-            Text("轉寫中...")
+            Text(AppStatusMessage.transcribing)
                 .foregroundColor(.white)
                 .font(.system(size: 14, weight: .medium))
                 .frame(maxWidth: 300, alignment: .leading)
 
         case .enhancing:
             VStack(alignment: .leading, spacing: 2) {
-                Text("增強中...")
+                Text(AppStatusMessage.enhancing)
                     .foregroundColor(.white)
                     .font(.system(size: 14, weight: .medium))
                     .lineLimit(1)

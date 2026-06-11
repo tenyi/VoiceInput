@@ -206,14 +206,13 @@ struct VoiceInputTests {
         
         // Act: Start recording
         viewModel.toggleRecording()
-        
-        // Wait for async state updates (increased to 0.5s for CI stability)
-        try? await Task.sleep(nanoseconds: 500_000_000)
-        
-        print("DEBUG: viewModel.appState = \(viewModel.appState)")
-        print("DEBUG: mockAudio.isRecording = \(mockAudio.isRecording)")
-        print("DEBUG: viewModel.transcribedText = \(viewModel.transcribedText)")
-        
+
+        // H-5 修復:改用 polling 等待狀態變化,取代固定 Task.sleep
+        let deadline = Date().addingTimeInterval(2.0)
+        while !mockAudio.isRecording && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
         // Assert: 應該切換到錄音狀態
         #expect(viewModel.appState == .recording)
         #expect(mockAudio.isRecording == true)

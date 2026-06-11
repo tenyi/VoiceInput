@@ -11,7 +11,8 @@ import AppKit
 @main
 struct VoiceInputApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var viewModel = AppDelegate.sharedViewModel
+    // M-6 修復:viewModel 由 AppDelegate 持有生命週期,App 層只是觀察者,用 @ObservedObject
+    @ObservedObject private var viewModel = AppDelegate.sharedViewModel
 
     var body: some Scene {
         MenuBarExtra("VoiceInput", systemImage: viewModel.isRecording ? "waveform.circle.fill" : "mic.fill") {
@@ -121,6 +122,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 當應用程式即將關閉時
     func applicationWillTerminate(_ notification: Notification) {
+        // L-6 修復:同步 flush debounce 中的 Keychain 寫入,避免 _exit(0) 遺失
+        Self.sharedLLMSettingsViewModel.flushPendingKeychainWrites()
+
         // 確保所有的非同步設定寫入已送出
         UserDefaults.standard.synchronize()
         print("為避免 ggml-metal C++ 資源釋放當機，應用程式正以 _exit(0) 安全退出")

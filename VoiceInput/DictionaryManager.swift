@@ -34,6 +34,8 @@ struct DictionaryItem: Identifiable, Codable, Equatable {
 
 class DictionaryManager: ObservableObject {
     @Published var items: [DictionaryItem] = []
+    /// H-2 修復:保存失敗時通知 UI 層
+    @Published var lastSaveError: String?
 
     private let storageKey: String
     private let userDefaults: UserDefaults
@@ -142,8 +144,14 @@ class DictionaryManager: ObservableObject {
         // 透過 barrier 寫入,確保與背景讀取不會看到不一致的中間狀態
         accessQueue.async(flags: .barrier) { [weak self] in
             guard let self = self else { return }
-            if let encoded = try? JSONEncoder().encode(self.items) {
+            do {
+                let encoded = try JSONEncoder().encode(self.items)
                 self.userDefaults.set(encoded, forKey: self.storageKey)
+            } catch {
+                // H-2 修復:保存失敗時透過 @Published 通知 UI
+                DispatchQueue.main.async {
+                    self.lastSaveError = "詞典保存失敗: \(error.localizedDescription)"
+                }
             }
             // 寫入後清除 regex 快取(項目可能已變動,快取不再有效)
             self.regexCache.removeAll(keepingCapacity: false)
