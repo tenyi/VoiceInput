@@ -9,8 +9,8 @@ class WindowManager: ObservableObject {
     
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "WindowManager")
 
-    private var floatingWindow: NSPanel?
-    private var hostingController: NSHostingController<FloatingPanelView>?
+    var floatingWindow: NSPanel?
+    var hostingController: NSHostingController<FloatingPanelView>?
 
     // 注入 ViewModel (需要在 VoiceInputApp 初始化時設定)
     var viewModel: VoiceInputViewModel?

@@ -644,3 +644,25 @@ HotkeyInteractionController（策略層）— 依模式決定語意
     ↓ onStartRecording / onStopAndTranscribe
 VoiceInputViewModel（業務層）— 執行錄音流程
 ```
+
+---
+
+## 十、關鍵架構優化與併行安全改進
+
+在 Sprint 1-4 的重構與修復過程中，系統架構進行了多項關鍵的安全與效能優化：
+
+### 10-1 i18n 與 AppStatusMessage 狀態本地化
+* **動態計算屬性**：將 `AppStatusMessage` 擴充為覆蓋 7 個核心狀態的列舉（等待輸入、聆聽中、轉寫中、增強中、識別錯誤、缺失模型、錄音失敗），並將原有的常數字串重構為 `NSLocalizedString` 的 `static var` 動態計算屬性，在無損 API 相容性的情況下，實現了多語系在執行期的動態切換。
+
+### 10-2 全量依賴注入 (DI) 與 Mock 測試
+* **ViewModel 完全解耦**：將 `VoiceInputViewModel` 對 `HistoryManager`、`LLMSettingsViewModel`、`ModelManager` 的參照全部重構為建構子依賴注入 (DI)。測試環境中可直接傳入 Mock 實例，避免測試環境與 UI singleton 或 `AppDelegate` 產生意外耦合。
+
+### 10-3 應用程式安全退出與數據 Flush
+* **優雅終止守衛**：針對 whisper.cpp / ggml-metal 的 C++ 資源解構可能引發的當機，App 在 `applicationWillTerminate` 中使用 `_exit(0)` 強制退出。為防止退出時丟失進行中的 Keychain 敏感數據或 UserDefaults 設定，App 在 `_exit(0)` 前會同步呼叫 `flushPendingKeychainWrites()` 以寫入所有 pending 狀態的金鑰。
+
+### 10-4 Whisper P-core (效能核心) 優先調度
+* **Apple Silicon 優化**：在 LibWhisper 載入模型及計算時，利用 `sysctlbyname("hw.perflevel0.physicalcpu", ...)` 動態取得晶片的效能核心 (Performance Cores) 數量，並依此調度執行緒。這避免了 Whisper 執行緒被派發至節能核心 (Efficiency Cores) 導致轉譯延遲，進而顯著提升了語音識別的整體響應速度。
+
+### 10-5 雙層 Actor 隔離與併行安全管線
+* **AudioConverterActor 隔離**：利用 Swift Actor 的獨佔特性建立 `AudioConverterActor`，將非 Sendable 的 `AVAudioConverter` 限制在 Actor 內執行，徹底避免了多執行緒的資料競爭與潛在 crash。
+* **inFlightProcessingCount 設計**：使用 `inFlightProcessingCount` 原子化追蹤非同步處理中的音訊 buffer。在使用者呼叫 `stop()` 停止錄音時，系統會等待所有仍在管線中處理的 buffer 處理完畢才進行快照轉譯，確保最後一秒的音訊不會被遺漏。

@@ -17,13 +17,13 @@ enum AppState {
 
 /// 應用程式狀態訊息常數
 enum AppStatusMessage {
-    static let waitingForInput = "等待輸入..."
-    static let listening = "聆聽中..."
-    static let transcribing = "轉寫中..."
-    static let enhancing = "增強中..."
-    static let recognitionErrorPrefix = "識別錯誤："
-    static let missingWhisperModel = "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)"
-    static let recordingFailedPrefix = "錄音啟動失敗："
+    static var waitingForInput: String { NSLocalizedString("status.waitingForInput", value: "等待輸入...", comment: "") }
+    static var listening: String { NSLocalizedString("status.listening", value: "聆聽中...", comment: "") }
+    static var transcribing: String { NSLocalizedString("status.transcribing", value: "轉寫中...", comment: "") }
+    static var enhancing: String { NSLocalizedString("status.enhancing", value: "增強中...", comment: "") }
+    static var recognitionErrorPrefix: String { NSLocalizedString("status.recognitionErrorPrefix", value: "識別錯誤：", comment: "") }
+    static var missingWhisperModel: String { NSLocalizedString("status.missingWhisperModel", value: "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)", comment: "") }
+    static var recordingFailedPrefix: String { NSLocalizedString("status.recordingFailedPrefix", value: "錄音啟動失敗：", comment: "") }
 }
 
 // MARK: - 時間常量
@@ -68,6 +68,15 @@ class VoiceInputViewModel: ObservableObject {
 
     /// M-5 修復:歷史管理器透過注入,測試時可替換
     private let historyManager: HistoryManager
+
+    /// A2.1:LLM 設定透過注入,測試時可替換為 mock
+    private let llmSettingsViewModel: LLMSettingsViewModel
+
+    /// A2.2:模型管理器透過注入,測試時可替換為 mock
+    private let modelManager: ModelManager
+
+    /// A1.2:時鐘抽象;測試可注入 TestClock 跳過延遲,生產環境使用 SystemClock
+    let clock: Clock
 
     // MARK: - Speech Engine 選項
 
@@ -152,14 +161,20 @@ class VoiceInputViewModel: ObservableObject {
         hotkeyManager: HotkeyManagerProtocol,
         audioEngine: AudioEngineProtocol,
         inputSimulator: InputSimulatorProtocol,
-        historyManager: HistoryManager = AppDelegate.sharedHistoryManager,
-        userDefaults: UserDefaults = .standard
+        historyManager: HistoryManager? = nil,
+        llmSettingsViewModel: LLMSettingsViewModel? = nil,
+        modelManager: ModelManager? = nil,
+        userDefaults: UserDefaults = .standard,
+        clock: Clock = SystemClock()
     ) {
         self.hotkeyManager = hotkeyManager
         self.audioEngine = audioEngine
         self.inputSimulator = inputSimulator
-        self.historyManager = historyManager
+        self.historyManager = historyManager ?? AppDelegate.sharedHistoryManager
+        self.llmSettingsViewModel = llmSettingsViewModel ?? AppDelegate.sharedLLMSettingsViewModel
+        self.modelManager = modelManager ?? AppDelegate.sharedModelManager
         self.userDefaults = userDefaults
+        self.clock = clock
         
         // Initialize properties from UserDefaults
         self.selectedLanguage = userDefaults.string(forKey: "selectedLanguage") ?? "zh-TW"
@@ -179,6 +194,7 @@ class VoiceInputViewModel: ObservableObject {
         setupTranscriptionManager()
     }
 
+    @MainActor
     convenience init() {
         self.init(
             hotkeyManager: HotkeyManager.shared,
@@ -219,6 +235,9 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 設定音訊引擎與檢查權限
     private func setupAudioEngine() {
+        if ProcessInfo.processInfo.isRunningForPreview {
+            return
+        }
         // 檢查所有權限狀態
         permissionManager.checkAllPermissions()
 
@@ -245,6 +264,9 @@ class VoiceInputViewModel: ObservableObject {
 
     /// 設定快捷鍵監聽（T4-3：摿 HotkeyManager 事件接入 HotkeyInteractionController）
     private func setupHotkeys() {
+        if ProcessInfo.processInfo.isRunningForPreview {
+            return
+        }
         // 套用儲存的快捷鍵設定
         if let savedHotkey = HotkeyOption(rawValue: selectedHotkey) {
             hotkeyManager.setHotkey(savedHotkey)
@@ -357,12 +379,13 @@ class VoiceInputViewModel: ObservableObject {
             transcriptionManager.configure(engine: .apple, modelURL: nil, language: selectedLanguage)
         case .whisper:
             // 檢查模型路徑是否存在
-            guard let modelURL = AppDelegate.sharedModelManager.getSelectedModelURL() else {
+            guard let modelURL = self.modelManager.getSelectedModelURL() else {
                  transcribedText = AppStatusMessage.missingWhisperModel
                  WindowManager.shared.showFloatingWindow(isRecording: true)
                  appState = .recording // 暫時進入狀態以顯示錯誤
                  
-                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                 Task { @MainActor [weak self] in
+                     await self?.clock.sleep(for: .seconds(2.0))
                      guard let self else { return }
                      WindowManager.shared.hideFloatingWindow()
                      self.appState = .idle
@@ -395,7 +418,8 @@ class VoiceInputViewModel: ObservableObject {
             appState = .idle
             transcribedText = "\(AppStatusMessage.recordingFailedPrefix)\(error.localizedDescription)"
             // 延遲 2 秒後再隱藏視窗，讓使用者能看清錯誤
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.clock.sleep(for: .seconds(2.0))
                 guard let self else { return }
                 WindowManager.shared.hideFloatingWindow()
                 self.transcribedText = AppStatusMessage.waitingForInput
@@ -419,7 +443,8 @@ class VoiceInputViewModel: ObservableObject {
         WindowManager.shared.showFloatingWindow(isRecording: false)
 
         // 延遲一點時間讓用户看到轉寫動畫
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        Task { @MainActor [weak self] in
+            await self?.clock.sleep(for: .seconds(0.5))
             self?.finishTranscribing()
         }
     }
@@ -433,7 +458,7 @@ class VoiceInputViewModel: ObservableObject {
 
         // 有有效文字的情況
         if hasValidText {
-            if AppDelegate.sharedLLMSettingsViewModel.llmEnabled {
+            if self.llmSettingsViewModel.llmEnabled {
                 // 啟用 LLM 修正：設置為增強中狀態
                 appState = .enhancing
 
@@ -455,7 +480,7 @@ class VoiceInputViewModel: ObservableObject {
     private func performLLMCorrection(completion: @escaping () -> Void) {
         // 透過 AppDelegate 的靜態 sharedLLMSettingsViewModel 取得設定，
         // 避免在 ViewModel 中直接依賴 EnvironmentObject
-        let config = AppDelegate.sharedLLMSettingsViewModel.resolveEffectiveConfiguration()
+        let config = self.llmSettingsViewModel.resolveEffectiveConfiguration()
 
         Task {
             do {
@@ -514,7 +539,8 @@ class VoiceInputViewModel: ObservableObject {
                     // 如果有 LLM 錯誤，先顯示錯誤訊息一段時間後再隱藏
                     if self.lastLLMError != nil {
                         // 設定狀態為顯示錯誤（保持懸浮視窗可見）
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                        Task { @MainActor [weak self] in
+                            await self?.clock.sleep(for: .seconds(2.0))
                             self?.lastLLMError = nil // 清除錯誤訊息
                             self?.hideWindow()
                         }
@@ -526,7 +552,8 @@ class VoiceInputViewModel: ObservableObject {
         } else {
             // 如果有 LLM 錯誤，先顯示錯誤訊息一段時間後再隱藏
             if lastLLMError != nil {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                Task { @MainActor [weak self] in
+                    await self?.clock.sleep(for: .seconds(2.0))
                     self?.lastLLMError = nil
                     self?.hideWindow()
                 }
@@ -539,8 +566,9 @@ class VoiceInputViewModel: ObservableObject {
     /// 插入文字到當前焦點
     private func insertText() {
         // 延遲確保焦點切換
-        DispatchQueue.main.asyncAfter(deadline: .now() + TimeConstants.focusSwitchDelay) { [weak self] in
-            guard let self = self else { return }
+        Task { @MainActor [weak self] in
+            await self?.clock.sleep(for: .seconds(TimeConstants.focusSwitchDelay))
+            guard let self else { return }
             self.inputSimulator.insertText(self.transcribedText)
         }
     }
@@ -548,7 +576,8 @@ class VoiceInputViewModel: ObservableObject {
     /// 隱藏浮動視窗
     private func hideWindow() {
         // 顯示最終結果一段時間後隱藏
-        DispatchQueue.main.asyncAfter(deadline: .now() + TimeConstants.windowHideDelay) { [weak self] in
+        Task { @MainActor [weak self] in
+            await self?.clock.sleep(for: .seconds(TimeConstants.windowHideDelay))
             WindowManager.shared.hideFloatingWindow()
             self?.appState = .idle
             self?.transcribedText = AppStatusMessage.waitingForInput

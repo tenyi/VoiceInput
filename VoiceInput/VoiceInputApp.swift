@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AppKit
+import OSLog
 
 @main
 struct VoiceInputApp: App {
@@ -34,13 +35,21 @@ struct VoiceInputApp: App {
 /// App 代理人，負責處理應用程式生命週期事件
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "AppDelegate")
+
     static let sharedViewModel = VoiceInputViewModel()
     static let sharedLLMSettingsViewModel = LLMSettingsViewModel()
     static let sharedModelManager = ModelManager()
     static let sharedHistoryManager = HistoryManager()
 
     /// 儲存設定視窗的引用
-    private var settingsWindow: NSWindow?
+    var settingsWindow: NSWindow?
+
+    /// A1.7:時鐘抽象;測試可注入 TestClock 跳過啟動延遲,生產環境使用 SystemClock
+    var clock: Clock = SystemClock()
+
+    /// 啟動後延遲顯示設定視窗的時間(秒)
+    private static let settingsWindowDelay: Double = 0.3
 
     /// 當應用程式完成啟動時呼叫
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -53,13 +62,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Self.sharedViewModel.startHotkeyMonitoring()
 
         // 建立並顯示設定視窗
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        // A1.7:透過注入的 clock 取代 DispatchQueue.main.asyncAfter
+        Task { @MainActor [weak self] in
+            await self?.clock.sleep(for: .seconds(Self.settingsWindowDelay))
             self?.showSettingsWindow()
         }
     }
 
     /// 顯示設定視窗
-    private func showSettingsWindow() {
+    func showSettingsWindow() {
         // 如果視窗已經存在，直接顯示
         if let window = settingsWindow {
             window.makeKeyAndOrderFront(nil)
@@ -84,7 +95,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         window.contentViewController = hostingController
-        window.title = "VoiceInput 設定"
+        window.title = NSLocalizedString("settings.window.title", comment: "Settings window title")
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = false
         window.titleVisibility = .visible
@@ -127,7 +138,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 確保所有的非同步設定寫入已送出
         UserDefaults.standard.synchronize()
-        print("為避免 ggml-metal C++ 資源釋放當機，應用程式正以 _exit(0) 安全退出")
+        logger.info("為避免 ggml-metal C++ 資源釋放當機，應用程式正以 _exit(0) 安全退出")
 
         // 繞過 whisper.cpp / ggml-metal 中的全域 C++ 物件解構過程
         // 以避免在一般 exit() 進入清理階段時發生 ggml_abort 當機

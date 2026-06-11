@@ -48,7 +48,7 @@ class DictionaryManager: ObservableObject {
 
     // H-11 修復:Regex 預編譯快取,key 為 (original, isCaseSensitive) tuple,
     // 避免每次 replaceText 都重新編譯 NSRegularExpression。
-    private var regexCache: [RegexCacheKey: NSRegularExpression] = [:]
+    private let regexCache = ThreadSafeRegexCache()
 
     init(userDefaults: UserDefaults = .standard, storageKey: String = "userDictionaryItems") {
         self.userDefaults = userDefaults
@@ -121,7 +121,7 @@ class DictionaryManager: ObservableObject {
     /// H-11 修復:取得 (or 建立並快取) 預編譯 NSRegularExpression
     private func cachedRegex(for item: DictionaryItem) -> NSRegularExpression {
         let key = RegexCacheKey(original: item.original, isCaseSensitive: item.isCaseSensitive)
-        if let cached = regexCache[key] {
+        if let cached = regexCache.get(for: key) {
             return cached
         }
         var options: NSRegularExpression.Options = []
@@ -136,7 +136,7 @@ class DictionaryManager: ObservableObject {
             // 罕見情況:建立一個永不匹配的 regex
             regex = try! NSRegularExpression(pattern: "(?!)", options: [])
         }
-        regexCache[key] = regex
+        regexCache.set(regex, for: key)
         return regex
     }
 
@@ -154,7 +154,7 @@ class DictionaryManager: ObservableObject {
                 }
             }
             // 寫入後清除 regex 快取(項目可能已變動,快取不再有效)
-            self.regexCache.removeAll(keepingCapacity: false)
+            self.regexCache.clear()
         }
     }
 
@@ -170,4 +170,28 @@ class DictionaryManager: ObservableObject {
 private struct RegexCacheKey: Hashable {
     let original: String
     let isCaseSensitive: Bool
+}
+
+/// 執行安全執行緒的 Regex 快取類別，供背景執行緒安全共用，符合 Swift 6 Concurrency
+private final class ThreadSafeRegexCache: @unchecked Sendable {
+    private var cache: [RegexCacheKey: NSRegularExpression] = [:]
+    private let lock = NSLock()
+    
+    func get(for key: RegexCacheKey) -> NSRegularExpression? {
+        lock.lock()
+        defer { lock.unlock() }
+        return cache[key]
+    }
+    
+    func set(_ regex: NSRegularExpression, for key: RegexCacheKey) {
+        lock.lock()
+        defer { lock.unlock() }
+        cache[key] = regex
+    }
+    
+    func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        cache.removeAll(keepingCapacity: false)
+    }
 }

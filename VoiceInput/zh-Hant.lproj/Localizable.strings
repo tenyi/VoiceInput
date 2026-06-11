@@ -4,6 +4,7 @@
    ========================================= */
 
 // MARK: - SettingsView (設定頁分頁標籤)
+"settings.window.title" = "VoiceInput 設定";
 "settings.tab.general" = "一般";
 "settings.tab.transcription" = "轉錄";
 "settings.tab.model" = "模型";
@@ -171,3 +172,12 @@
 "permission.check.insufficient" = "權限不足";
 "permission.check.message" = "VoiceInput 需要以下權限才能正常運作：";
 "permission.check.openPreferences" = "打開系統偏好設定";
+
+// MARK: - AppStatusMessage
+"status.waitingForInput" = "等待輸入...";
+"status.listening" = "聆聽中...";
+"status.transcribing" = "轉寫中...";
+"status.enhancing" = "增強中...";
+"status.recognitionErrorPrefix" = "識別錯誤：";
+"status.missingWhisperModel" = "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)";
+"status.recordingFailedPrefix" = "錄音啟動失敗：";

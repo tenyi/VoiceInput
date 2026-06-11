@@ -25,8 +25,8 @@ enum KeychainError: LocalizedError {
 }
 
 /// 簡單的 Keychain 封裝工具
-final class KeychainHelper: KeychainProtocol {
-    static let shared = KeychainHelper()
+final class KeychainHelper: KeychainProtocol, @unchecked Sendable {
+    nonisolated static let shared = KeychainHelper()
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "KeychainHelper")
 
     // C-5 修復:序列化 save 流程,避免 SecItemUpdate → SecItemAdd 之間的 TOCTOU 競態。

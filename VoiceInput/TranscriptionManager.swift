@@ -12,6 +12,9 @@ class TranscriptionManager: ObservableObject {
     /// 轉錄服務實例
     @Published private(set) var transcriptionService: TranscriptionServiceProtocol = SFSpeechTranscriptionService()
 
+    /// 轉譯服務工廠，主要用於測試時注入 Mock 服務
+    var serviceFactory: ((SpeechRecognitionEngine, URL?, String) -> TranscriptionServiceProtocol)?
+
     /// 目前配置
     private var currentConfig: TranscriptionConfig?
 
@@ -58,7 +61,10 @@ class TranscriptionManager: ObservableObject {
         switch engine {
         case .apple:
             // 使用 Apple 系統內建語音辨識服務
-            if !(transcriptionService is SFSpeechTranscriptionService) {
+            if let factory = serviceFactory {
+                transcriptionService = factory(engine, modelURL, language)
+                setupTranscriptionCallback()
+            } else if !(transcriptionService is SFSpeechTranscriptionService) {
                 transcriptionService = SFSpeechTranscriptionService()
                 setupTranscriptionCallback()
             }
@@ -76,14 +82,18 @@ class TranscriptionManager: ObservableObject {
                 return
             }
 
-            let isTypeMismatch = !(transcriptionService is WhisperTranscriptionService)
+            let isTypeMismatch = serviceFactory != nil ? false : !(transcriptionService is WhisperTranscriptionService)
 
             if currentConfig != targetConfig || isTypeMismatch {
                 logger.info("Whisper 配置變更或服務型別不符，重建服務，模型路徑: \(modelURL.path)")
-                transcriptionService = WhisperTranscriptionService(
-                    modelURL: modelURL,
-                    language: language
-                )
+                if let factory = serviceFactory {
+                    transcriptionService = factory(engine, modelURL, language)
+                } else {
+                    transcriptionService = WhisperTranscriptionService(
+                        modelURL: modelURL,
+                        language: language
+                    )
+                }
                 setupTranscriptionCallback()
                 currentConfig = targetConfig
                 logger.info("已切換到 Whisper 轉錄服務，模型: \(modelURL.lastPathComponent)")

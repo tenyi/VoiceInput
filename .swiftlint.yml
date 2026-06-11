@@ -1,0 +1,60 @@
+# ==============================================================================
+# VoiceInput 專案 - SwiftLint 設定檔 (.swiftlint.yml)
+# ==============================================================================
+
+# 排除不需要進行代碼風格檢查的目錄與檔案
+excluded:
+  - Pods
+  - Carthage
+  - build
+  - DerivedData
+  - whisper.xcframework
+  - SwiftWhisper
+  - VoiceInput/LibWhisper.swift # 排除 C API 橋接代碼以避免語法風格衝突
+
+# 停用的規則 (我們關閉一些對開發者造成過多瑣碎干擾的規則)
+disabled_rules:
+  - line_length             # 停用單行長度限制
+  - todo                    # 允許程式碼中有 TODO / FIXME 註記
+  - identifier_name         # 停用變數與型別名稱的長度/格式嚴格限制 (以相容底層 C API)
+  - function_body_length    # 停用函式主體行數限制
+  - type_body_length        # 停用類別主體行數限制
+  - file_length             # 停用檔案行數限制
+  - cyclomatic_complexity   # 停用圈複雜度限制
+  - trailing_whitespace     # 停用行尾空白檢查
+  - force_try               # 允許使用 force try (特別在測試中方便)
+  - force_unwrapping        # 允許使用 force unwrapping
+  - implicit_optional_initialization # 允許 var foo: String? = nil
+  - non_optional_string_data_conversion # 允許 String.data(using:) 轉換
+  - duplicate_imports       # 允許重複 imports
+  - multiple_closures_with_trailing_closure # 允許 SwiftUI 的 Trailing Closure 語法
+  - vertical_whitespace     # 停用空行限制
+  - trailing_newline       # 停用檔案尾部空行限制
+  - orphaned_doc_comment    # 允許孤立的文件註解
+  - large_tuple             # 允許 3 個以上成員的 Tuple
+  - unused_closure_parameter # 允許未使用的閉包參數 (可保留供未來擴充)
+  - leading_whitespace      # 允許檔案開頭的空白
+  - unneeded_synthesized_initializer # 允許顯式宣告 synthesized 構造函數
+  - colon                   # 允許放寬的冒號空格限制
+  - unused_optional_binding # 允許 let _ =
+  - function_parameter_count # 允許函式參數大於 5 個
+  - redundant_string_enum_value # 允許顯式宣告與 case 名稱相同的 raw value
+
+
+
+
+# 啟用的額外規則 (提升程式碼品質的規則)
+opt_in_rules:
+  - empty_count             # 偏好使用 .isEmpty 而非 .count == 0
+
+analyzer_rules:
+  - unused_import           # 移除無用的 import
+
+unused_import:
+  severity: error           # 無用 import 直接標記為錯誤 (Error)，必須移除
+
+
+# 專案程式碼包含目錄
+included:
+  - VoiceInput
+  - VoiceInputTests

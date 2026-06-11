@@ -60,10 +60,14 @@ class HotkeyInteractionController {
     /// Toggle 模式防重入旗標：避免連按過快造成重複 start/stop
     private var isTransitioning: Bool = false
 
+    /// 時鐘抽象,測試時可注入 TestClock 跳過實際等待 (A1.4)
+    private let clock: Clock
+
     // MARK: - 初始化
 
-    init(mode: RecordingTriggerMode = .pressAndHold) {
+    init(mode: RecordingTriggerMode = .pressAndHold, clock: Clock = SystemClock()) {
         self.mode = mode
+        self.clock = clock
     }
 
     // MARK: - T4-3：快捷鍵事件入口
@@ -92,16 +96,12 @@ class HotkeyInteractionController {
                 isTransitioning = true
                 triggerStart()
                 // 短暫 debounce，避免極速雙擊
-                DispatchQueue.main.asyncAfter(deadline: .now() + toggleTransitionDebounce) { [weak self] in
-                    self?.isTransitioning = false
-                }
+                scheduleTransitionEnd(after: toggleTransitionDebounce)
             } else {
                 // 錄音中 → 停止並轉寫
                 isTransitioning = true
                 triggerStop()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.isTransitioning = false
-                }
+                scheduleTransitionEnd(after: 0.3)
             }
         }
     }
@@ -135,5 +135,14 @@ class HotkeyInteractionController {
     private func triggerStop() {
         logger.info("[HotkeyInteractionController] → stopAndTranscribe")
         onStopAndTranscribe?()
+    }
+
+    /// 排程重置 Toggle 轉場旗標 (A1.5)
+    /// 透過注入的 Clock 取代 `DispatchQueue.main.asyncAfter`,測試可立即跳過等待
+    private func scheduleTransitionEnd(after seconds: Double) {
+        Task { @MainActor [weak self] in
+            await self?.clock.sleep(for: .seconds(seconds))
+            self?.isTransitioning = false
+        }
     }
 }

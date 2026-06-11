@@ -1,0 +1,56 @@
+# ==============================================================================
+# GitHub Actions CI - VoiceInput 測試工作流
+# ==============================================================================
+
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Build and Test (macOS)
+    runs-on: macos-14
+
+    steps:
+      - name: 📥 檢出程式碼 (Checkout code)
+        uses: actions/checkout@v4
+
+      - name: 📦 快取 whisper.xcframework (Cache Whisper framework)
+        id: cache-whisper
+        uses: actions/cache@v4
+        with:
+          path: whisper.xcframework
+          key: ${{ runner.os }}-whisper-xcframework-v1.7.1
+          restore-keys: |
+            ${{ runner.os }}-whisper-xcframework-
+
+      - name: ⚙️ 下載 whisper.xcframework (Download dependencies if cache miss)
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
+        run: |
+          chmod +x scripts/download-whisper.sh
+          ./scripts/download-whisper.sh 1.7.1
+
+      - name: 🧹 清理與設定環境 (Prepare build environment)
+        run: |
+          # 確保專案內可以找到 xcframework
+          ls -ld whisper.xcframework
+
+      - name: 🔍 執行 SwiftLint 檢查 (Run SwiftLint)
+        run: |
+          # 安裝 SwiftLint 進行靜態檢查
+          brew install swiftlint
+          swiftlint lint --strict --config .swiftlint.yml
+
+      - name: 🧪 執行單元測試與整合測試 (Run Tests)
+        run: |
+          xcodebuild test \
+            -project VoiceInput.xcodeproj \
+            -scheme VoiceInput \
+            -destination 'platform=macOS' \
+            -parallel-testing-enabled YES \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO

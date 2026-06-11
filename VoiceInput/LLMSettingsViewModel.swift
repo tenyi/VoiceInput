@@ -125,8 +125,8 @@ final class LLMSettingsViewModel: ObservableObject {
     private let userDefaults: UserDefaults
     private var isInternalUpdating = false
 
-    init(keychain: KeychainProtocol = KeychainHelper.shared, userDefaults: UserDefaults = .standard) {
-        self.keychain = keychain
+    init(keychain: KeychainProtocol? = nil, userDefaults: UserDefaults = .standard) {
+        self.keychain = keychain ?? KeychainHelper.shared
         self.userDefaults = userDefaults
 
         setupAPIKeySaving()

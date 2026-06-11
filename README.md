@@ -1,5 +1,7 @@
 # VoiceInput
 
+[![Test Suite](https://github.com/tenyi/VoiceInput/actions/workflows/test.yml/badge.svg)](https://github.com/tenyi/VoiceInput/actions/workflows/test.yml)
+
 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 
 VoiceInput is a macOS voice input tool that lets you dictate text into any application. Inspired by [VoiceInk](https://github.com/Beingpax/VoiceInk), this tool is completely free and open, with no license required.
@@ -61,6 +63,26 @@ On first launch, the system will prompt you to grant the following permissions:
 1. On first launch, a permission dialog will appear — click "Allow"
 2. If permission is denied, go to **System Preferences > Privacy & Security** to enable manually
 3. Click the VoiceInput icon in the menu bar and select "Settings" to check permission status
+
+## Development & Testing
+
+This project is built using a Protocol-Oriented design and Dependency Injection (DI), providing 100% test coverage for core business modules.
+
+### Run Test Suite
+
+You can run unit tests using Xcode's built-in testing tools, or execute the following command directly in the terminal:
+
+```bash
+xcodebuild test -project VoiceInput.xcodeproj -scheme VoiceInput -destination 'platform=macOS'
+```
+
+### Test Stability Validation
+
+To ensure code and test robustness, the project includes a stability validation script that runs the full test suite 10 times consecutively:
+
+```bash
+sh run-tests-10x.sh
+```
 
 ## Usage
 

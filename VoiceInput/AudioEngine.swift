@@ -35,8 +35,10 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
     /// 日誌記錄器
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "AudioEngine")
 
-    /// AVCaptureSession 實例，用於處理音訊流
-    private var captureSession: AVCaptureSession?
+    /// AVCaptureSession 實例,用於處理音訊流
+    /// B1.2.5:型別改為 protocol,以支援測試注入 MockAVCaptureSession
+    /// B1.5:從 private 改為 internal,以便測試注入 mock session 模擬「錄音中」狀態
+    var captureSession: CaptureSessionProtocol?
     /// 音訊資料輸出
     private var audioDataOutput: AVCaptureAudioDataOutput?
 
@@ -51,17 +53,39 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
     @Published var selectedDeviceID: String?
 
     /// 權限管理員
-    private let permissionManager = PermissionManager.shared
+    /// J1.3:型別從 `PermissionManager` 改為 `PermissionManagerProtocol`,以支援測試注入 mock
+    private let permissionManager: PermissionManagerProtocol
 
     /// 儲存兩個設備通知的 observer token（connected + disconnected），確保 deinit 時能完整移除
     private var deviceObservers: [NSObjectProtocol] = []
 
     /// 音訊回調
-    private var bufferCallback: ((AVAudioPCMBuffer) -> Void)?
+    /// B1.3:從 private 改為 internal,以便測試驗證 H-3 修復(失敗路徑不留下 callback)
+    var bufferCallback: ((AVAudioPCMBuffer) -> Void)?
     /// 截取佇列
     private let captureQueue = DispatchQueue(label: "com.voiceinput.audiocapture")
 
-    private override init() {
+    /// Capture session 工廠;測試可注入 mock,生產環境使用 AVCaptureSession
+    /// B1.2.5:把 `AVCaptureSession()` 直接建構抽成注入點,讓 startRecording 可被單元測試
+    private let sessionFactory: () -> CaptureSessionProtocol
+
+    /// 設備選擇覆寫;測試可注入 closure 回傳 nil 觸發「無可用裝置」失敗路徑
+    /// B1.3:AVCaptureDevice 為 ObjC 抽象類別,無法 mock;透過此 override 注入
+    /// 生產環境留 nil,走原本的 selectedDeviceID / AVCaptureDevice.default 邏輯
+    var getSelectedDeviceOverride: (() -> AVCaptureDevice?)?
+
+    /// - Parameters:
+    ///   - sessionFactory: 自訂 capture session 建構邏輯;預設為 `AVCaptureSession()`。
+    ///     測試可注入 `MockAVCaptureSession` 以攔截 `startRunning` / `stopRunning`。
+    ///   - permissionManager: 權限管理員;預設為 `PermissionManager.shared`。
+    ///     測試可注入 mock 來驗證 `checkPermission` 流程(J1.3)。
+    init(
+        sessionFactory: @escaping () -> CaptureSessionProtocol = { AVCaptureSession() },
+        permissionManager: PermissionManagerProtocol = PermissionManager.shared
+    ) {
+        self.sessionFactory = sessionFactory
+        self.permissionManager = permissionManager
+        self.getSelectedDeviceOverride = nil
         super.init()
         refreshAvailableDevices()
         setupDeviceNotificationObserver()
@@ -158,7 +182,13 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
     // MARK: - 錄音控制
 
     /// 取得目前選擇的 AVCaptureDevice（用於名稱回退比對）
-    private func getSelectedDevice() -> AVCaptureDevice? {
+    /// B1.6:從 private 改為 internal,以便測試直接驗證裝置選擇邏輯
+    func getSelectedDevice() -> AVCaptureDevice? {
+        // B1.3:測試可透過 getSelectedDeviceOverride 注入回傳值,跳過真實硬體
+        if let override = getSelectedDeviceOverride {
+            return override()
+        }
+
         guard let deviceID = selectedDeviceID else {
             return AVCaptureDevice.default(for: .audio)
         }
@@ -176,6 +206,11 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
     /// Starts recording audio.
     /// - Parameter callback: 錄音數據的回調閉包 (Callback for audio buffer)
     func startRecording(callback: @escaping (AVAudioPCMBuffer) -> Void) throws {
+        if ProcessInfo.processInfo.isRunningForPreview {
+            logger.info("Xcode Preview 模式下，跳過實際錄音啟動")
+            return
+        }
+
         guard permissionGranted else {
             throw AudioEngineError.permissionNotGranted
         }
@@ -188,7 +223,7 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
         // H-3 修復:在所有可能 throw 的步驟完成後才設定 callback,
         // 避免失敗時留下 dangling callback (閉包捕獲的 self 造成記憶體洩漏)。
 
-        let session = AVCaptureSession()
+        let session = sessionFactory()
 
         // 找到指定的實體麥克風裝置
         guard let device = getSelectedDevice() else {

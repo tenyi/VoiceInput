@@ -66,7 +66,7 @@ enum PermissionStatus {
 }
 
 /// 統一管理權限的類別
-class PermissionManager: ObservableObject {
+class PermissionManager: ObservableObject, PermissionManagerProtocol {
     /// 單例實例
     static let shared = PermissionManager()
 
@@ -83,7 +83,30 @@ class PermissionManager: ObservableObject {
     /// 標記是否已經請求過權限（防止重複彈出）
     private var hasRequestedPermissionsThisSession = false
 
-    private init() {}
+    // MARK: - 測試用覆寫
+
+    /// B2.2:測試可注入 closure 模擬 `AVCaptureDevice.authorizationStatus(for:)` 回傳值
+    /// 生產環境留 nil,走原本系統 API 邏輯
+    var checkMicStatusOverride: (() -> PermissionStatus)?
+
+    /// B2.2:測試可注入 closure 模擬 `AVCaptureDevice.requestAccess(for:)` 行為
+    /// 接收 completion closure,測試可控制回傳 granted/denied
+    /// 生產環境留 nil,走原本系統 API 邏輯
+    var requestMicAccessOverride: ((@escaping (Bool) -> Void) -> Void)?
+
+    /// B2.3:測試可注入 closure 模擬 `SFSpeechRecognizer.authorizationStatus()` 回傳值
+    /// 生產環境留 nil,走原本系統 API 邏輯
+    var checkSpeechStatusOverride: (() -> PermissionStatus)?
+
+    /// B2.3:測試可注入 closure 模擬 `SFSpeechRecognizer.requestAuthorization()` 行為
+    /// 生產環境留 nil,走原本系統 API 邏輯
+    var requestSpeechAuthOverride: ((@escaping (Bool) -> Void) -> Void)?
+
+    /// B2.4:測試可注入 closure 模擬 `AXIsProcessTrusted()` 回傳值
+    /// 生產環境留 nil,走原本系統 API 邏輯
+    var checkAccessibilityOverride: (() -> Bool)?
+
+    init() {}
 
     /// 檢查所有權限狀態
     func checkAllPermissions() {
@@ -105,6 +128,8 @@ class PermissionManager: ObservableObject {
 
     /// 檢查麥克風權限狀態
     func checkMicrophoneStatus() -> PermissionStatus {
+        // B2.2:測試可透過 checkMicStatusOverride 注入回傳值,跳過系統 API
+        if let override = checkMicStatusOverride { return override() }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             return .authorized
@@ -121,6 +146,8 @@ class PermissionManager: ObservableObject {
 
     /// 檢查語音辨識權限狀態
     func checkSpeechRecognitionStatus() -> PermissionStatus {
+        // B2.3:測試可透過 checkSpeechStatusOverride 注入回傳值,跳過系統 API
+        if let override = checkSpeechStatusOverride { return override() }
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
             return .authorized
@@ -140,7 +167,8 @@ class PermissionManager: ObservableObject {
 
     /// 檢查輔助功能權限狀態
     func checkAccessibilityStatus() -> PermissionStatus {
-        let trusted = AXIsProcessTrusted()
+        // B2.4:測試可透過 checkAccessibilityOverride 注入回傳值,跳過系統 API
+        let trusted = checkAccessibilityOverride?() ?? AXIsProcessTrusted()
         if trusted {
             return .authorized
         }
@@ -297,6 +325,16 @@ class PermissionManager: ObservableObject {
 
     /// 請求麥克風權限
     private func requestMicrophonePermission(completion: @escaping (Bool) -> Void) {
+        // B2.2:測試可透過 requestMicAccessOverride 注入回傳值,跳過系統 API
+        if let override = requestMicAccessOverride {
+            override { [weak self] granted in
+                DispatchQueue.main.async {
+                    self?.microphoneStatus = granted ? .authorized : .denied
+                    completion(granted)
+                }
+            }
+            return
+        }
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
             DispatchQueue.main.async {
                 self?.microphoneStatus = granted ? .authorized : .denied
@@ -307,6 +345,16 @@ class PermissionManager: ObservableObject {
 
     /// 請求語音辨識權限
     private func requestSpeechRecognitionPermission(completion: @escaping (Bool) -> Void) {
+        // B2.3:測試可透過 requestSpeechAuthOverride 注入回傳值,跳過系統 API
+        if let override = requestSpeechAuthOverride {
+            override { [weak self] granted in
+                DispatchQueue.main.async {
+                    self?.speechRecognitionStatus = granted ? .authorized : .denied
+                    completion(granted)
+                }
+            }
+            return
+        }
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
             DispatchQueue.main.async {
                 let granted = (status == .authorized)

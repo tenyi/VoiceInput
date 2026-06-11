@@ -1,0 +1,69 @@
+#!/bin/bash
+# ==============================================================================
+# scripts/pre-commit
+#
+# 目的: 在 git commit 提交前進行自動安全檢查，防止提交敏感檔案或非必要的超大檔案。
+# ==============================================================================
+
+set -e
+
+# 定義敏感檔案的 Regex 規則
+SENSITIVE_PATTERNS="(\.env|\.pem|\.key|Credentials\.plist|id_rsa)"
+
+# 定義大檔案限制的大小 (單位：Bytes，10MB = 10485760 Bytes)
+MAX_FILE_SIZE=10485760
+
+# 追蹤是否有任何檢查不通過
+FAILED=0
+
+echo "================================================================================"
+echo "🔍 正在進行 Commit 前置安全檢查..."
+echo "================================================================================"
+
+# 取得目前被 staged (暫存) 的檔案列表
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$STAGED_FILES" ]; then
+    echo "✅ 沒有暫存的檔案需要檢查。"
+    echo "================================================================================"
+    exit 0
+fi
+
+# 1. 檢查敏感檔案
+echo "1. 正在檢查敏感檔案..."
+for FILE in $STAGED_FILES; do
+    if [[ "$FILE" =~ $SENSITIVE_PATTERNS ]]; then
+        echo "❌ 錯誤: 發現敏感檔案被暫存: '$FILE'！"
+        echo "💡 請使用 'git restore --staged $FILE' 移出暫存區，切勿將密鑰或設定檔上傳到 Git。"
+        FAILED=1
+    fi
+done
+
+# 2. 檢查超大檔案
+echo "2. 正在檢查檔案大小限制 (最大 10MB)..."
+for FILE in $STAGED_FILES; do
+    # 確保檔案真的存在 (防止已刪除檔案在 diff 列表)
+    if [ -f "$FILE" ]; then
+        FILE_SIZE=$(stat -f%z "$FILE" 2>/dev/null || stat -c%s "$FILE" 2>/dev/null || echo 0)
+        
+        if [ "$FILE_SIZE" -gt "$MAX_FILE_SIZE" ]; then
+            # 轉換為 MB 方便閱讀
+            SIZE_MB=$(echo "scale=2; $FILE_SIZE / 1048576" | bc 2>/dev/null || echo "$((FILE_SIZE / 1048576))")
+            echo "❌ 錯誤: 檔案 '$FILE' 大小為 ${SIZE_MB}MB，超過了 10MB 的限制！"
+            echo "💡 較大的二進位檔案 (如 Whisper 模型 *.bin 或 xcframework) 應透過 External Link 下載，不應進 Git 倉庫。"
+            echo "💡 請執行 'git restore --staged $FILE' 移出暫存區。"
+            FAILED=1
+        fi
+    fi
+done
+
+echo "================================================================================"
+if [ "$FAILED" -eq 1 ]; then
+    echo "❌ 檢查失敗: Commit 被安全鉤子阻擋！請修正上述問題後再試。"
+    echo "================================================================================"
+    exit 1
+else
+    echo "✅ 安全檢查通過！允許提交。"
+    echo "================================================================================"
+    exit 0
+fi

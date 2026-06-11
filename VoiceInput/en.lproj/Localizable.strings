@@ -4,6 +4,7 @@
    ========================================= */
 
 // MARK: - SettingsView (設定頁分頁標籤)
+"settings.window.title" = "VoiceInput Settings";
 "settings.tab.general" = "General";
 "settings.tab.transcription" = "Transcription";
 "settings.tab.model" = "Model";
@@ -171,3 +172,12 @@
 "permission.check.insufficient" = "Insufficient Permissions";
 "permission.check.message" = "VoiceInput needs the following permissions to function:";
 "permission.check.openPreferences" = "Open System Preferences";
+
+// MARK: - AppStatusMessage
+"status.waitingForInput" = "Waiting for input...";
+"status.listening" = "Listening...";
+"status.transcribing" = "Transcribing...";
+"status.enhancing" = "Enhancing...";
+"status.recognitionErrorPrefix" = "Recognition Error: ";
+"status.missingWhisperModel" = "Please select a valid Whisper model file (.bin) in Settings first";
+"status.recordingFailedPrefix" = "Recording failed: ";

@@ -193,34 +193,40 @@ struct VoiceInputTests {
              throw NSError(domain: "VoiceInputTests", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create mock UserDefaults"])
         }
         mockDefaults.removePersistentDomain(forName: suiteName)
-        
+
+        // C1.2:注入 TestClock 跳過 stopRecordingAndTranscribe 內的 0.5s 等待
+        let testClock = TestClock()
+
         let viewModel = VoiceInputViewModel(
             hotkeyManager: mockHotkey,
             audioEngine: mockAudio,
             inputSimulator: mockInput,
-            userDefaults: mockDefaults
+            userDefaults: mockDefaults,
+            clock: testClock
         )
-        
+
         #expect(viewModel.appState == .idle)
         #expect(mockAudio.isRecording == false)
-        
+
         // Act: Start recording
         viewModel.toggleRecording()
 
-        // H-5 修復:改用 polling 等待狀態變化,取代固定 Task.sleep
-        let deadline = Date().addingTimeInterval(2.0)
-        while !mockAudio.isRecording && Date() < deadline {
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-
-        // Assert: 應該切換到錄音狀態
+        // 狀態變化是同步的(handleStartRecordingRequest → startRecording → appState = .recording)
+        // MockAudioEngine.startRecording 內 isRecording = true 也是同步
         #expect(viewModel.appState == .recording)
         #expect(mockAudio.isRecording == true)
-        
+
+        // C1.2:等待 300ms debounce 過期(recordingStartTime 使用真實 Date,無法用 TestClock 跳過)
+        // 改用 polling yield 精準等待,避免固定 Task.sleep 帶來的 flaky
+        let debounceDeadline = Date().addingTimeInterval(0.4)
+        while Date() < debounceDeadline {
+            try? await Task.yield()
+        }
+
         // Act: Stop recording
         viewModel.toggleRecording()
-        
-        // Assert: 應該切換到轉寫狀態，並停止錄音
+
+        // C1.2:同步斷言 appState = .transcribing(stopRecordingAndTranscribe 內同步設定)
         #expect(viewModel.appState == .transcribing)
         #expect(mockAudio.isRecording == false)
     }

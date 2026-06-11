@@ -83,8 +83,8 @@ class HotkeyManager: HotkeyManagerProtocol {
             logger.warning("輔助功能權限未授予，無法創建 Event Tap")
         }
 
-        // 設置事件過濾 mask
-        let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
+        // 設置事件過濾 mask（僅監聽修飾鍵 flagsChanged 事件以減少 CPU 開銷）
+        let eventMask: CGEventMask = 1 << CGEventType.flagsChanged.rawValue
 
         // 回調函數
         // 回調函數（listenOnly 模式下回傳值會被忽略）
@@ -135,27 +135,17 @@ class HotkeyManager: HotkeyManagerProtocol {
 
     /// 處理事件
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) {
+        guard type == .flagsChanged else { return }
+        
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-
-        if type == .flagsChanged {
-            let transition = processFlagsChangedEvent(keyCode: keyCode, flags: event.flags)
-            switch transition {
-            case .pressed:
-                dispatchHotkeyEvent(isDown: true)
-            case .released:
-                dispatchHotkeyEvent(isDown: false)
-            case .none:
-                break
-            }
-        } else {
-            // L-4 備註:keyDown/keyUp 分支目前未觸發(所有快捷鍵都走 flagsChanged 路徑)。
-            // 保留此分支供未來通用按鍵快捷鍵擴充使用。
-            guard keyCode == Int64(currentHotkey.scancode) else { return }
-            let isNowDown = (type == .keyDown)
-            if isNowDown != isTargetKeyDown {
-                isTargetKeyDown = isNowDown
-                dispatchHotkeyEvent(isDown: isNowDown)
-            }
+        let transition = processFlagsChangedEvent(keyCode: keyCode, flags: event.flags)
+        switch transition {
+        case .pressed:
+            dispatchHotkeyEvent(isDown: true)
+        case .released:
+            dispatchHotkeyEvent(isDown: false)
+        case .none:
+            break
         }
     }
 
