@@ -409,7 +409,7 @@ final class LLMSettingsViewModel: ObservableObject {
         model: String,
         selectedCustomProvider: CustomLLMProvider?
     ) -> EffectiveLLMConfiguration {
-        let resolvedPrompt = prompt.isEmpty ? LLMSettingsViewModel.defaultLLMPrompt : prompt
+        var resolvedPrompt = prompt.isEmpty ? LLMSettingsViewModel.defaultLLMPrompt : prompt
         var resolvedProvider = provider
         let resolvedAPIKey = apiKey  // API key 不需要修改，使用 let
         var resolvedURL = url
@@ -419,6 +419,11 @@ final class LLMSettingsViewModel: ObservableObject {
             resolvedProvider = .custom
             resolvedURL = custom.url
             resolvedModel = custom.model
+            // 若自訂 Provider 設定了專屬提示詞，優先採用
+            let customPrompt = custom.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !customPrompt.isEmpty {
+                resolvedPrompt = customPrompt
+            }
         }
         
         return EffectiveLLMConfiguration(

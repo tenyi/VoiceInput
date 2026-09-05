@@ -6,11 +6,14 @@ import os
 import CoreAudio
 
 /// AudioEngine 錯誤類型
-enum AudioEngineError: Error, LocalizedError {
-    case permissionNotGranted
-    case deviceNotAvailable
-    case sessionConfigurationFailed
-    case inputNotSupported
+enum AudioEngineError: Int, Error, LocalizedError, CustomNSError {
+    case permissionNotGranted = 1
+    case deviceNotAvailable = 2
+    case sessionConfigurationFailed = 3
+    case inputNotSupported = 4
+
+    static var errorDomain: String { "AudioEngineError" }
+    var errorCode: Int { rawValue }
 
     var errorDescription: String? {
         switch self {
@@ -151,7 +154,7 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
         // 添加"系統預設"選項
         let defaultDevice = AudioInputDevice(
             id: nil,
-            name: "系統預設",
+            name: NSLocalizedString("audio.device.systemDefault", value: "系統預設", comment: "System default audio device"),
             isDefault: true
         )
         devices.append(defaultDevice)
@@ -228,7 +231,7 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
         // 找到指定的實體麥克風裝置
         guard let device = getSelectedDevice() else {
             logger.error("無法取得指定的音訊輸入裝置")
-            throw NSError(domain: "AudioEngineError", code: 2, userInfo: [NSLocalizedDescriptionKey: "無法綁定音訊裝置"])
+            throw AudioEngineError.deviceNotAvailable
         }
         
         logger.info("準備啟動錄音，目標麥克風: \(device.localizedName)")
@@ -237,7 +240,7 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
         let audioInput = try AVCaptureDeviceInput(device: device)
         guard session.canAddInput(audioInput) else {
             logger.error("無法將音訊輸入加入到 session 中")
-            throw NSError(domain: "AudioEngineError", code: 3, userInfo: [NSLocalizedDescriptionKey: "設備不支持"])
+            throw AudioEngineError.sessionConfigurationFailed
         }
         session.addInput(audioInput)
 
@@ -245,7 +248,7 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
         let audioOutput = AVCaptureAudioDataOutput()
         guard session.canAddOutput(audioOutput) else {
             logger.error("無法將音訊輸出加入到 session 中")
-            throw NSError(domain: "AudioEngineError", code: 4, userInfo: [NSLocalizedDescriptionKey: "系統不支持"])
+            throw AudioEngineError.inputNotSupported
         }
         audioOutput.setSampleBufferDelegate(self, queue: captureQueue)
         session.addOutput(audioOutput)

@@ -348,7 +348,13 @@ actor AudioConverterActor {
         outputBuffer.frameLength = capacity
 
         var error: NSError?
+        var hasSuppliedData = false
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            if hasSuppliedData {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            hasSuppliedData = true
             outStatus.pointee = .haveData
             return buffer
         }

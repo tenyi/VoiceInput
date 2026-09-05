@@ -162,6 +162,25 @@ struct SFSpeechTranscriptionServiceTests {
         
         #expect(receivedResult == nil, "無語音錯誤應被過濾，不應觸發 failure 回調")
     }
+
+    /// 測試 handleRecognitionError 過濾任務取消相關錯誤
+    @Test("handleRecognitionError 取消錯誤應被過濾，不觸發失敗回調")
+    func testHandleRecognitionError_cancellation_filtered() async {
+        let service = SFSpeechTranscriptionService()
+
+        var receivedResult: Result<String, Error>?
+        service.onTranscriptionResult = { result in
+            receivedResult = result
+        }
+
+        service.start()
+
+        // 模擬系統取消錯誤 (kAFAssistantErrorDomain 216)
+        let cancelError = NSError(domain: "kAFAssistantErrorDomain", code: 216, userInfo: [NSLocalizedDescriptionKey: "Operation was cancelled"])
+        service.handleRecognitionError(cancelError)
+
+        #expect(receivedResult == nil, "取消錯誤應被過濾，不應觸發 failure 回調")
+    }
     
     /// B8.4: 測試 handleRecognitionError 拋出其他一般性錯誤
     @Test("handleRecognitionError 遇到一般錯誤時觸發失敗回調")

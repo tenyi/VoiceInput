@@ -68,7 +68,7 @@ class HistoryManager: ObservableObject {
             try fileSystem.write(data, to: fileURL, options: .atomic)
         } catch {
             logger.error("無法保存轉錄歷史: \(error.localizedDescription)")
-            lastSaveError = "歷史紀錄保存失敗: \(error.localizedDescription)"
+            lastSaveError = String(format: NSLocalizedString("history.save.failed", value: "歷史紀錄保存失敗: %@", comment: ""), error.localizedDescription)
         }
     }
     

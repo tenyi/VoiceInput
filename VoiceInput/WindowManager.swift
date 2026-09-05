@@ -238,7 +238,7 @@ struct FloatingPanelView: View {
     @ViewBuilder
     private var errorStatusView: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("LLM 修正失敗")
+            Text(AppStatusMessage.llmCorrectionFailed)
                 .foregroundColor(.white)
                 .font(.system(size: 12, weight: .semibold))
             if let errorMessage = viewModel.lastLLMError {

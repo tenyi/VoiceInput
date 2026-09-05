@@ -24,6 +24,7 @@ enum AppStatusMessage {
     static var recognitionErrorPrefix: String { NSLocalizedString("status.recognitionErrorPrefix", value: "識別錯誤：", comment: "") }
     static var missingWhisperModel: String { NSLocalizedString("status.missingWhisperModel", value: "請先在設定中選擇有效的 Whisper 模型檔案 (.bin)", comment: "") }
     static var recordingFailedPrefix: String { NSLocalizedString("status.recordingFailedPrefix", value: "錄音啟動失敗：", comment: "") }
+    static var llmCorrectionFailed: String { NSLocalizedString("status.llmCorrectionFailed", value: "LLM 修正失敗", comment: "") }
 }
 
 // MARK: - 時間常量

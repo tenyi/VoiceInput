@@ -9,7 +9,6 @@ import whisper
 
 actor WhisperContext {
     private var context: OpaquePointer?
-    private var languageCString: [CChar]?
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "WhisperContext")
 
     init(modelPath: String) throws {
@@ -51,19 +50,22 @@ actor WhisperContext {
         params.offset_ms = 0
         params.n_threads = Int32(Self.pCoreCount)
 
-        if let code = whisperLanguageCode(from: language) {
-            languageCString = Array(code.utf8CString)
-            params.language = languageCString?.withUnsafeBufferPointer { $0.baseAddress }
-        } else {
-            languageCString = nil
-            params.language = nil
-        }
-
         whisper_reset_timings(context)
-        let result = samples.withUnsafeBufferPointer { buffer in
-            whisper_full(context, params, buffer.baseAddress, Int32(buffer.count))
+        let langCode = whisperLanguageCode(from: language)
+        let result: Int32
+        if let langCode = langCode {
+            result = langCode.withCString { cStr in
+                params.language = cStr
+                return samples.withUnsafeBufferPointer { buffer in
+                    whisper_full(context, params, buffer.baseAddress, Int32(buffer.count))
+                }
+            }
+        } else {
+            params.language = nil
+            result = samples.withUnsafeBufferPointer { buffer in
+                whisper_full(context, params, buffer.baseAddress, Int32(buffer.count))
+            }
         }
-        languageCString = nil
 
         guard result == 0 else {
             logger.error("whisper_full 失敗，result=\(result)")

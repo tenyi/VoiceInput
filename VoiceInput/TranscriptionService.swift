@@ -148,13 +148,25 @@ final class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
 
     /// 處理語音識別錯誤 (方便單元測試直接測試此邏輯)
     internal func handleRecognitionError(_ error: Error) {
-        // 檢查是否為「無語音」類型的錯誤
-        let errorMessage = error.localizedDescription.lowercased()
-        let noSpeechErrors = ["no speech detected", "speech unavailable", "nothing was recorded", "unable to find speech"]
+        let nsError = error as NSError
 
-        if noSpeechErrors.contains(where: { errorMessage.contains($0) }) {
-            self.logger.info("未檢測到語音 (No speech detected)")
-            // 視情況決定是否回報空字串，或忽略
+        // 檢查是否為任務取消造成的正常終止 (例如主動停止錄音或清理 task 時觸發)
+        let isCancellation = (nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216) ||
+                             (nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError)
+
+        // 檢查是否為「無語音」或「已取消」類型的非致命狀態
+        let errorMessage = error.localizedDescription.lowercased()
+        let benignErrors = [
+            "no speech detected",
+            "speech unavailable",
+            "nothing was recorded",
+            "unable to find speech",
+            "operation was cancelled",
+            "request was cancelled"
+        ]
+
+        if isCancellation || benignErrors.contains(where: { errorMessage.contains($0) }) {
+            self.logger.info("忽略無語音或正常取消事件: \(error.localizedDescription)")
         } else {
             self.logger.error("識別錯誤 (Recognition error): \(error.localizedDescription)")
             self.onTranscriptionResult?(.failure(error))

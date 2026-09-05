@@ -80,6 +80,32 @@ struct VoiceInputTests {
         #expect(withDefaultPrompt.prompt == LLMSettingsViewModel.defaultLLMPrompt)
     }
 
+    @Test
+    @MainActor
+    func effectiveLLMConfig_customProviderWithNonEmptyPromptUsesCustomPrompt() async throws {
+        let custom = CustomLLMProvider(
+            name: "CustomWithPrompt",
+            url: "https://custom.example.com/v1/chat/completions",
+            model: "custom-model",
+            prompt: "專屬自訂提示詞"
+        )
+
+        let mockKeychain = MockKeychain()
+        let suiteName = "TestDefaults-\(UUID().uuidString)"
+        guard let mockDefaults = UserDefaults(suiteName: suiteName) else {
+             throw NSError(domain: "VoiceInputTests", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create mock UserDefaults"])
+        }
+        mockDefaults.removePersistentDomain(forName: suiteName)
+
+        let llmSettings = LLMSettingsViewModel(keychain: mockKeychain, userDefaults: mockDefaults)
+        llmSettings.customProviders = [custom]
+        llmSettings.selectedCustomProviderId = custom.id.uuidString
+        llmSettings.llmPrompt = "全域提示詞"
+
+        let config = llmSettings.resolveEffectiveConfiguration()
+        #expect(config.prompt == "專屬自訂提示詞")
+    }
+
     // MARK: - T6-1 Trigger Mode 狀態機測試（Press-and-Hold）
 
     @Test

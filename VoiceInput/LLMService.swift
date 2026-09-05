@@ -206,14 +206,32 @@ class LLMService {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw LLMServiceError.invalidResponse
             }
+            // 1. OpenAI 格式: choices[0].message.content
             if let choices = json["choices"] as? [[String: Any]],
-               let firstChoice = choices.first,
-               let message = firstChoice["message"] as? [String: Any],
+               let firstChoice = choices.first {
+                if let message = firstChoice["message"] as? [String: Any],
+                   let content = message["content"] as? String {
+                    return stripThinkTags(content)
+                }
+                if let text = firstChoice["text"] as? String {
+                    return stripThinkTags(text)
+                }
+            }
+            // 2. Ollama 原生 /api/chat 格式: message.content
+            if let message = json["message"] as? [String: Any],
                let content = message["content"] as? String {
                 return stripThinkTags(content)
-            } else if let error = json["error"] as? [String: Any],
-                      let message = error["message"] as? String {
+            }
+            // 3. Ollama 原生 /api/generate 格式: response
+            if let responseText = json["response"] as? String {
+                return stripThinkTags(responseText)
+            }
+            // 4. 錯誤訊息解析
+            if let error = json["error"] as? [String: Any],
+               let message = error["message"] as? String {
                 throw LLMServiceError.apiError(message)
+            } else if let errorString = json["error"] as? String {
+                throw LLMServiceError.apiError(errorString)
             }
             throw LLMServiceError.invalidResponse
         } catch let error as LLMServiceError {
@@ -366,20 +384,20 @@ class LLMService {
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // 原生 Ollama 與 OpenAI 相容層的 body 格式相同(都是 messages 陣列)
+        // 原生 Ollama 與 OpenAI 相容層均支援 messages 陣列，加入 stream: false 關閉串流
         let body: [String: Any] = [
             "model": modelName,
             "messages": [
                 ["role": "system", "content": prompt],
                 ["role": "user", "content": text]
             ],
+            "stream": false,
             "temperature": 0.3
         ]
 
         // 如果序列化失敗，向上拋出明確錯誤而非發送空 body
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        // 原生 Ollama 與 OpenAI 相容層回應格式相同(都有 choices[0].message.content)
-        // 因此複用 parseOpenAILikeResponse
+        // 支援 Ollama 原生 /api/chat 與 OpenAI 相容端點格式
         return try await performRequest(request, parser: parseOpenAILikeResponse)
     }
 

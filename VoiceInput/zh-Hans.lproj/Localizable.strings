@@ -178,3 +178,9 @@
 "status.recognitionErrorPrefix" = "识别错误：";
 "status.missingWhisperModel" = "请先在设置中选择有效的 Whisper 模型文件 (.bin)";
 "status.recordingFailedPrefix" = "录音启动失败：";
+"status.llmCorrectionFailed" = "LLM 修正失败";
+
+// MARK: - Audio & Storage
+"audio.device.systemDefault" = "系统默认";
+"history.save.failed" = "历史记录保存失败: %@";
+"dictionary.save.failed" = "词典保存失败: %@";

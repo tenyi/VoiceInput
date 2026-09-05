@@ -181,3 +181,9 @@
 "status.recognitionErrorPrefix" = "Recognition Error: ";
 "status.missingWhisperModel" = "Please select a valid Whisper model file (.bin) in Settings first";
 "status.recordingFailedPrefix" = "Recording failed: ";
+"status.llmCorrectionFailed" = "LLM Correction Failed";
+
+// MARK: - Audio & Storage
+"audio.device.systemDefault" = "System Default";
+"history.save.failed" = "Failed to save history: %@";
+"dictionary.save.failed" = "Failed to save dictionary: %@";

@@ -42,9 +42,13 @@ class DictionaryManager: ObservableObject {
 
     static let shared = DictionaryManager()
 
-    // C-6 修復:replaceText 在背景執行緒被呼叫,讀取 items 需先取快照避免
-    // 與主執行緒的 mutation 競爭。透過 queue 序列化讀寫。
-    private let accessQueue = DispatchQueue(label: "com.voiceinput.dictionary.access", attributes: .concurrent)
+    // 執行緒安全保護：透過 snapshotLock 保護 cachedSnapshot，
+    // 確保背景 replaceText 與主執行緒 mutation 不會競爭 Array 記憶體。
+    private let snapshotLock = NSLock()
+    private var cachedSnapshot: [DictionaryItem] = []
+
+    // 背景序列化儲存佇列
+    private let storageQueue = DispatchQueue(label: "com.voiceinput.dictionary.storage")
 
     // H-11 修復:Regex 預編譯快取,key 為 (original, isCaseSensitive) tuple,
     // 避免每次 replaceText 都重新編譯 NSRegularExpression。
@@ -56,9 +60,16 @@ class DictionaryManager: ObservableObject {
         loadItems()
     }
 
+    private func updateCachedSnapshot() {
+        snapshotLock.lock()
+        cachedSnapshot = items
+        snapshotLock.unlock()
+    }
+
     func addItem(original: String, replacement: String, isCaseSensitive: Bool = false) {
         let newItem = DictionaryItem(original: original, replacement: replacement, isCaseSensitive: isCaseSensitive)
         items.append(newItem)
+        updateCachedSnapshot()
         saveItems()
     }
 
@@ -67,36 +78,39 @@ class DictionaryManager: ObservableObject {
     func addItems(_ newItems: [DictionaryItem]) {
         guard !newItems.isEmpty else { return }
         items.append(contentsOf: newItems)
+        updateCachedSnapshot()
         saveItems()
     }
 
     func deleteItem(at offsets: IndexSet) {
         items.remove(atOffsets: offsets)
+        updateCachedSnapshot()
         saveItems()
     }
 
     func deleteItem(_ item: DictionaryItem) {
         items.removeAll { $0.id == item.id }
+        updateCachedSnapshot()
         saveItems()
     }
 
     func updateItem(_ item: DictionaryItem) {
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items[index] = item
+            updateCachedSnapshot()
             saveItems()
         }
     }
 
     /// 執行文字置換
     /// 依據原始字串長度由長至短排序，避免短的關鍵字破壞長的關鍵字
-    /// C-6 修復:此方法可從轉錄管線(背景執行緒)呼叫,以 concurrent read 取快照後離開 queue。
-    /// H-11 修復:用預編譯的 NSRegularExpression 一次替換所有啟用項目,避免 N×M 字串掃描。
+    /// 線程安全：從 snapshotLock 取出不可變快照，避免與主執行緒的 mutation 競爭。
     func replaceText(_ text: String) -> String {
-        // 在 concurrent queue 上以 .concurrent 讀取,寫入端透過 barrier 序列化。
-        // 這保證讀取時看到一致的快照,避免與背景 mutation 競爭。
-        let snapshot: [DictionaryItem] = accessQueue.sync {
-            items
-        }
+        let snapshot: [DictionaryItem] = {
+            snapshotLock.lock()
+            defer { snapshotLock.unlock() }
+            return cachedSnapshot
+        }()
 
         let activeItems = snapshot.filter { $0.isEnabled }
         guard !activeItems.isEmpty else { return text }
@@ -141,16 +155,19 @@ class DictionaryManager: ObservableObject {
     }
 
     private func saveItems() {
-        // 透過 barrier 寫入,確保與背景讀取不會看到不一致的中間狀態
-        accessQueue.async(flags: .barrier) { [weak self] in
+        snapshotLock.lock()
+        let itemsToSave = cachedSnapshot
+        snapshotLock.unlock()
+
+        storageQueue.async { [weak self] in
             guard let self = self else { return }
             do {
-                let encoded = try JSONEncoder().encode(self.items)
+                let encoded = try JSONEncoder().encode(itemsToSave)
                 self.userDefaults.set(encoded, forKey: self.storageKey)
             } catch {
                 // H-2 修復:保存失敗時透過 @Published 通知 UI
                 DispatchQueue.main.async {
-                    self.lastSaveError = "詞典保存失敗: \(error.localizedDescription)"
+                    self.lastSaveError = String(format: NSLocalizedString("dictionary.save.failed", value: "詞典保存失敗: %@", comment: ""), error.localizedDescription)
                 }
             }
             // 寫入後清除 regex 快取(項目可能已變動,快取不再有效)
@@ -163,6 +180,7 @@ class DictionaryManager: ObservableObject {
            let decoded = try? JSONDecoder().decode([DictionaryItem].self, from: data) {
             items = decoded
         }
+        updateCachedSnapshot()
     }
 }
 
