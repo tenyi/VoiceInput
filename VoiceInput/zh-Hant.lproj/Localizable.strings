@@ -12,12 +12,21 @@
 "settings.tab.dictionary" = "字典";
 "settings.tab.history" = "歷史";
 
+"settings.pane.general.subtitle" = "管理系統權限、音訊輸入設備與快捷鍵行為";
+"settings.pane.transcription.subtitle" = "設定語音辨識的主要語言";
+"settings.pane.model.subtitle" = "選擇辨識引擎與管理本地 Whisper 模型";
+"settings.pane.llm.subtitle" = "使用大型語言模型自動修正轉寫文字與標點";
+"settings.pane.dictionary.subtitle" = "自訂文字替換規則，自動校正專有名詞";
+"settings.pane.history.subtitle" = "瀏覽最近的語音輸入歷史與快速複製";
+
 // MARK: - GeneralSettingsView
 "general.section.permissions" = "權限狀態";
 "general.permission.microphone" = "麥克風";
 "general.permission.speechRecognition" = "語音辨識";
 "general.permission.accessibility" = "輔助功能";
 "general.permission.requestAll" = "請求權限";
+"general.permission.granted" = "已授權";
+"general.permission.notGranted" = "未授權";
 "general.permission.footer" = "點擊任一項目可查看或設定權限";
 
 "general.section.audioInput" = "音訊輸入";

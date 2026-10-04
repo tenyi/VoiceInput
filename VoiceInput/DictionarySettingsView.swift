@@ -1,3 +1,9 @@
+//
+//  DictionarySettingsView.swift
+//  VoiceInput
+//
+//  字典管理設定視圖：自訂轉錄後文字替換規則
+//
 
 import SwiftUI
 
@@ -7,144 +13,142 @@ struct DictionarySettingsView: View {
     @State private var replacementText: String = ""
     @State private var isCaseSensitive: Bool = false
     @State private var editingItem: DictionaryItem?
-    
+
     var body: some View {
         Form {
+            // 頁首卡片
+            SettingsPaneHeader(pane: .dictionary)
+
+            // 新增 / 編輯規則區塊
             Section {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text(String(localized: "dictionary.rule.description"))
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    HStack {
+                    HStack(spacing: 8) {
                         TextField(String(localized: "dictionary.rule.original"), text: $originalText)
                             .textFieldStyle(.roundedBorder)
 
                         Image(systemName: "arrow.right")
                             .foregroundColor(.secondary)
+                            .font(.callout.weight(.medium))
 
                         TextField(String(localized: "dictionary.rule.replacement"), text: $replacementText)
                             .textFieldStyle(.roundedBorder)
+
                         Toggle("Aa", isOn: $isCaseSensitive)
                             .toggleStyle(.button)
                             .help(String(localized: "dictionary.rule.caseSensitive.help"))
 
                         Button(action: addOrUpdateItem) {
-                            Image(systemName: editingItem == nil ? "plus.circle.fill" : "checkmark.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(editingItem == nil ? .green : .blue)
+                            if editingItem == nil {
+                                Label(String(localized: "dictionary.rule.add.help"), systemImage: "plus")
+                            } else {
+                                Label(String(localized: "dictionary.rule.update.help"), systemImage: "checkmark")
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .disabled(originalText.isEmpty || replacementText.isEmpty)
-                        .help(editingItem == nil
-                              ? String(localized: "dictionary.rule.add.help")
-                              : String(localized: "dictionary.rule.update.help"))
+                        .buttonStyle(.borderedProminent)
+                        .disabled(originalText.trimmingCharacters(in: .whitespaces).isEmpty || replacementText.isEmpty)
 
                         if editingItem != nil {
                             Button(action: cancelEdit) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.title2)
-                                    .foregroundColor(.gray)
+                                Image(systemName: "xmark")
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.bordered)
                             .help(String(localized: "dictionary.rule.cancelEdit.help"))
                         }
                     }
                 }
                 .padding(.vertical, 4)
             } header: {
-                Text(String(localized: "dictionary.section.editRule"))
+                Text(editingItem == nil
+                     ? String(localized: "dictionary.section.editRule")
+                     : String(localized: "dictionary.rule.update.help"))
             }
-            
+
+            // 已設定規則列表
             Section {
                 if dictionaryManager.items.isEmpty {
-                    Text(String(localized: "dictionary.rules.empty"))
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding()
-                } else {
-                    // Header Row
-                    HStack {
-                        Text(String(localized: "dictionary.rules.header.original"))
-                            .font(.caption)
-                            .fontWeight(.bold)
+                    // 空狀態
+                    VStack(spacing: 8) {
+                        Image(systemName: "books.vertical")
+                            .font(.system(size: 30, weight: .light))
+                            .foregroundStyle(.tertiary)
+                        Text(String(localized: "dictionary.rules.empty"))
                             .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Spacer()
-                            .frame(width: 20)
-
-                        Text(String(localized: "dictionary.rules.header.replacement"))
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.secondary)
-                             .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Spacer()
-                            .frame(width: 60) // Alignment for buttons
                     }
-                    .padding(.horizontal, 4)
-                    .padding(.bottom, 4)
-
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                } else {
                     ForEach(dictionaryManager.items) { item in
-                        HStack {
+                        HStack(spacing: 10) {
                             Text(item.original)
                                 .font(.body)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                             Image(systemName: "arrow.right")
-                                .font(.caption)
+                                .font(.caption.weight(.semibold))
                                 .foregroundColor(.secondary)
                                 .frame(width: 20)
 
                             Text(item.replacement)
-                                .font(.body)
-                                .fontWeight(.medium)
+                                .font(.body.weight(.medium))
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                             if item.isCaseSensitive {
                                 Text("Aa")
-                                    .font(.caption2)
-                                    .fontWeight(.bold)
-                                    .padding(.horizontal, 4)
+                                    .font(.caption2.weight(.bold))
+                                    .padding(.horizontal, 5)
                                     .padding(.vertical, 2)
-                                    .background(Color.secondary.opacity(0.2))
-                                    .cornerRadius(4)
+                                    .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
                             }
 
-                            Spacer()
+                            Spacer(minLength: 4)
 
-                            // Edit Button
+                            // 編輯按鈕
                             Button(action: { startEditing(item) }) {
                                 Image(systemName: "pencil")
-                                    .foregroundColor(.blue)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.borderless)
+                            .foregroundColor(.accentColor)
                             .help(String(localized: "dictionary.rules.edit.help"))
+                            .accessibilityLabel(String(localized: "dictionary.rules.edit.help"))
 
-                            // Delete Button
+                            // 刪除按鈕
                             Button(action: { dictionaryManager.deleteItem(item) }) {
                                 Image(systemName: "trash")
                                     .foregroundColor(.red)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.borderless)
                             .help(String(localized: "dictionary.rules.delete.help"))
+                            .accessibilityLabel(String(localized: "dictionary.rules.delete.help"))
                         }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 8)
-                        .background(editingItem?.id == item.id ? Color.blue.opacity(0.1) : Color.clear)
-                        .cornerRadius(4)
-
-                        Divider()
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                        .background(
+                            editingItem?.id == item.id
+                                ? Color.accentColor.opacity(0.12)
+                                : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
                     }
                 }
             } header: {
-                Text(String(localized: "dictionary.section.rules"))
+                HStack {
+                    Text(String(localized: "dictionary.section.rules"))
+                    Spacer()
+                    if !dictionaryManager.items.isEmpty {
+                        Text("\(dictionaryManager.items.count)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
-    
+
     private func addOrUpdateItem() {
         if let editingItem = editingItem {
             var updatedItem = editingItem
@@ -159,20 +163,20 @@ struct DictionarySettingsView: View {
             for original in originals where !original.isEmpty {
                 dictionaryManager.addItem(original: original, replacement: replacementText, isCaseSensitive: isCaseSensitive)
             }
-            
+
             originalText = ""
             replacementText = ""
             isCaseSensitive = false
         }
     }
-    
+
     private func startEditing(_ item: DictionaryItem) {
         editingItem = item
         originalText = item.original
         replacementText = item.replacement
         isCaseSensitive = item.isCaseSensitive
     }
-    
+
     private func cancelEdit() {
         editingItem = nil
         originalText = ""

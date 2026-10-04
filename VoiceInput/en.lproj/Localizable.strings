@@ -12,12 +12,21 @@
 "settings.tab.dictionary" = "Dictionary";
 "settings.tab.history" = "History";
 
+"settings.pane.general.subtitle" = "Manage system permissions, audio devices, and shortcuts";
+"settings.pane.transcription.subtitle" = "Choose recognition languages";
+"settings.pane.model.subtitle" = "Select engines and manage local Whisper models";
+"settings.pane.llm.subtitle" = "Refine transcriptions with large language models";
+"settings.pane.dictionary.subtitle" = "Custom text replacement rules";
+"settings.pane.history.subtitle" = "Review and copy recent transcriptions";
+
 // MARK: - GeneralSettingsView
 "general.section.permissions" = "Permissions";
 "general.permission.microphone" = "Microphone";
 "general.permission.speechRecognition" = "Speech Recognition";
 "general.permission.accessibility" = "Accessibility";
 "general.permission.requestAll" = "Request Permissions";
+"general.permission.granted" = "Granted";
+"general.permission.notGranted" = "Not Granted";
 "general.permission.footer" = "Tap any item to view or configure permissions";
 
 "general.section.audioInput" = "Audio Input";

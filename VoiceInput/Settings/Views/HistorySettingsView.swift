@@ -6,17 +6,31 @@ struct HistorySettingsView: View {
 
     var body: some View {
         Form {
+            // 頁首卡片
+            SettingsPaneHeader(pane: .history)
+
             Section {
                 if historyManager.transcriptionHistory.isEmpty {
-                    Text(String(localized: "history.empty"))
-                        .foregroundColor(.secondary)
+                    // 空狀態：置中圖示與說明
+                    VStack(spacing: 8) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 28, weight: .light))
+                            .foregroundStyle(.tertiary)
+                        Text(String(localized: "history.empty"))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
                 } else {
                     ForEach(historyManager.transcriptionHistory) { item in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(item.createdAt.formatted(date: .omitted, time: .standard))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Label(
+                                    item.createdAt.formatted(date: .omitted, time: .standard),
+                                    systemImage: "clock"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
                                 Spacer()
 
@@ -26,23 +40,28 @@ struct HistorySettingsView: View {
                                     pasteboard.clearContents()
                                     pasteboard.setString(item.text, forType: .string)
                                 } label: {
-                                    Label(String(localized: "history.copy"), systemImage: "doc.on.doc")
+                                    Image(systemName: "doc.on.doc")
                                 }
                                 .buttonStyle(.borderless)
+                                .help(String(localized: "history.copy"))
+                                .accessibilityLabel(String(localized: "history.copy"))
 
                                 Button {
                                     historyManager.deleteHistoryItem(item)
                                 } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
+                                    Image(systemName: "trash")
+                                        .foregroundStyle(.red)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.borderless)
                                 .help(String(localized: "history.delete.help"))
+                                .accessibilityLabel(String(localized: "history.delete.help"))
                             }
 
                             Text(item.text)
-                                .font(.system(.body, design: .monospaced))
+                                .font(.body)
+                                .lineSpacing(2)
                                 .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .padding(.vertical, 4)
                     }
@@ -55,7 +74,6 @@ struct HistorySettingsView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
 }
-

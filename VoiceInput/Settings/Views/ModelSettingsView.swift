@@ -6,14 +6,23 @@ struct ModelSettingsView: View {
 
     var body: some View {
         Form {
+            // 頁首卡片
+            SettingsPaneHeader(pane: .model)
+
             Section {
-                Picker(String(localized: "model.engine.picker"), selection: Binding(
+                Picker(selection: Binding(
                     get: { viewModel.currentSpeechEngine },
                     set: { viewModel.selectedSpeechEngine = $0.rawValue }
                 )) {
                     ForEach(SpeechRecognitionEngine.allCases) { engine in
                         Text(engine.rawValue).tag(engine)
                     }
+                } label: {
+                    SettingsRowLabel(
+                        title: String(localized: "model.engine.picker"),
+                        symbol: "waveform.badge.mic",
+                        tint: .orange
+                    )
                 }
                 .pickerStyle(.segmented)
             } header: {
@@ -34,18 +43,20 @@ struct ModelSettingsView: View {
                 // 匯入進度顯示
                 if modelManager.isImportingModel {
                     Section {
-                        VStack(spacing: 12) {
-                            // 進度條
-                            ProgressView(value: modelManager.modelImportProgress) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
                                 Text(String(localized: "model.import.importing"))
                                     .font(.headline)
+                                Spacer()
+                                // 進度百分比（等寬數字避免跳動）
+                                Text("\(Int(modelManager.modelImportProgress * 100))%")
+                                    .font(.title3.weight(.semibold))
+                                    .monospacedDigit()
                             }
-                            .progressViewStyle(.linear)
 
-                            // 進度百分比
-                            Text("\(Int(modelManager.modelImportProgress * 100))%")
-                                .font(.title2)
-                                .fontWeight(.medium)
+                            // 進度條
+                            ProgressView(value: modelManager.modelImportProgress)
+                                .progressViewStyle(.linear)
 
                             // 速度和剩餘時間
                             HStack(spacing: 16) {
@@ -60,7 +71,7 @@ struct ModelSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 4)
                     } header: {
                         Text(String(localized: "model.section.importProgress"))
                     }
@@ -80,15 +91,16 @@ struct ModelSettingsView: View {
                 // 已導入的模型列表
                 Section {
                     if modelManager.importedModels.isEmpty {
+                        // 空狀態
                         VStack(spacing: 8) {
-                            Image(systemName: "cube.box")
-                                .font(.system(size: 32))
-                                .foregroundColor(.secondary)
+                            Image(systemName: "cube.transparent")
+                                .font(.system(size: 32, weight: .light))
+                                .foregroundStyle(.tertiary)
                             Text(String(localized: "model.import.empty"))
                                 .foregroundColor(.secondary)
                             Text(String(localized: "model.import.hint"))
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.tertiary)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
@@ -105,16 +117,17 @@ struct ModelSettingsView: View {
                         }
                     }
 
-                    // 導入按鈕
-                    Button(action: {
-                        modelManager.importModel()
-                    }) {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text(String(localized: "model.import.button"))
+                    // 導入按鈕（靠右對齊，與 macOS 表單慣例一致）
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            modelManager.importModel()
+                        }) {
+                            Label(String(localized: "model.import.button"), systemImage: "plus")
                         }
+                        .buttonStyle(.bordered)
+                        .disabled(modelManager.isImportingModel)
                     }
-                    .disabled(modelManager.isImportingModel)
                 } header: {
                     HStack {
                         Text(String(localized: "model.section.importedModels"))
@@ -133,7 +146,7 @@ struct ModelSettingsView: View {
 
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
 }
 
@@ -148,11 +161,12 @@ struct ModelRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // 模型圖示
-            Image(systemName: "cpu.fill")
-                .font(.title2)
-                .foregroundColor(isSelected ? .green : .secondary)
-                .frame(width: 28)
+            // 模型圖示：選中時以綠色強調，未選中為灰色
+            SettingsIconBadge(
+                symbol: "cube.fill",
+                tint: isSelected ? .green : .gray,
+                size: 30
+            )
 
             VStack(alignment: .leading, spacing: 4) {
                 // 模型名稱和類型標籤
@@ -163,12 +177,11 @@ struct ModelRowView: View {
 
                     // 模型類型標籤
                     Text(model.inferredModelType)
-                        .font(.caption2)
+                        .font(.caption2.weight(.medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.15))
-                        .foregroundColor(.blue)
-                        .cornerRadius(4)
+                        .background(Color.accentColor.opacity(0.15), in: Capsule())
+                        .foregroundStyle(Color.accentColor)
                 }
 
                 // 檔案大小和匯入日期
@@ -205,25 +218,26 @@ struct ModelRowView: View {
             // 選中狀態
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
+                    .foregroundStyle(.green)
                     .font(.title3)
             }
 
             // 在 Finder 中顯示
             Button(action: onShowInFinder) {
                 Image(systemName: "folder")
-                    .foregroundColor(.secondary)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help(String(localized: "model.row.showInFinder"))
+            .accessibilityLabel(String(localized: "model.row.showInFinder"))
 
             // 刪除按鈕
             Button(action: onDelete) {
                 Image(systemName: "trash")
-                    .foregroundColor(.red)
+                    .foregroundStyle(.red)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help(String(localized: "model.row.delete"))
+            .accessibilityLabel(String(localized: "model.row.delete"))
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())

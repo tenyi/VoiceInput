@@ -88,7 +88,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingController = NSHostingController(rootView: settingsView)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 450),
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 540),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -99,7 +99,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.isReleasedWhenClosed = false
         window.titlebarAppearsTransparent = false
         window.titleVisibility = .visible
-        window.minSize = NSSize(width: 400, height: 350)
+        window.toolbarStyle = .unifiedCompact
+        window.minSize = NSSize(width: 680, height: 480)
 
         // 確保視窗大小設置完成後再置中
         window.setFrameAutosaveName("SettingsWindow")

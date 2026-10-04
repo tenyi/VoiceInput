@@ -16,7 +16,10 @@ struct WindowManagerTests {
         let mockHotkey = MockHotkeyManager()
         let mockAudio = MockAudioEngine()
         let mockInput = MockInputSimulator()
-        let mockDefaults = UserDefaults.standard
+        // 使用隨機 suite 的暫存 UserDefaults，避免汙染 TEST_HOST（VoiceInput.app）的真實使用者設定
+        let suiteName = "TestWindowManager-\(UUID().uuidString)"
+        let mockDefaults = UserDefaults(suiteName: suiteName) ?? UserDefaults()
+        defer { mockDefaults.removePersistentDomain(forName: suiteName) }
         let testClock = TestClock()
 
         let mockViewModel = VoiceInputViewModel(

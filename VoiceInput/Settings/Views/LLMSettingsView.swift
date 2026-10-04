@@ -88,21 +88,18 @@ struct LLMSettingsView: View {
 
     var body: some View {
         Form {
-            // 啟用開關
-            Section {
+            // 頁首卡片：總開關直接放在卡片右側（仿系統設定的 Wi-Fi／藍牙卡片）
+            SettingsPaneHeader(pane: .llm) {
                 Toggle(String(localized: "llm.enable.toggle"), isOn: $llmSettings.llmEnabled)
-                    .toggleStyle(.checkbox)
-            } header: {
-                Text(String(localized: "llm.section.enable"))
-            } footer: {
-                Text(String(localized: "llm.enable.footer"))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.large)
+                    .help(String(localized: "llm.enable.footer"))
             }
 
             // Provider 選擇
             Section {
-                Picker(String(localized: "llm.provider.picker"), selection: Binding(
+                Picker(selection: Binding(
                     get: {
                         // 如果有選擇自訂 Provider，返回其 ID；否則返回內建 Provider 名稱
                         if let custom = selectedCustomProvider {
@@ -135,14 +132,23 @@ struct LLMSettingsView: View {
                             }
                         }
                     }
+                } label: {
+                    SettingsRowLabel(
+                        title: String(localized: "llm.provider.picker"),
+                        symbol: "server.rack",
+                        tint: .indigo
+                    )
                 }
                 .pickerStyle(.menu)
 
-                // 管理自訂 Provider 按鈕
-                Button(action: { showingProviderManager = true }) {
-                    Label(String(localized: "llm.provider.manage"), systemImage: "folder.circle")
+                // 管理自訂 Provider 按鈕（靠右對齊）
+                HStack {
+                    Spacer()
+                    Button(action: { showingProviderManager = true }) {
+                        Label(String(localized: "llm.provider.manage"), systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.borderless)
                 }
-                .buttonStyle(.link)
             } header: {
                 Text(String(localized: "llm.section.provider"))
             } footer: {
@@ -253,8 +259,15 @@ struct LLMSettingsView: View {
             Section {
                 // 使用@State 來處理編輯，若有自訂內容則顯示，否則顯示預設值
                 TextEditor(text: $promptText)
-                    .frame(height: 80)
+                    .frame(height: 90)
                     .font(.system(.body, design: .monospaced))
+                    .padding(4)
+                    .background(Color(NSColor.textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                    )
                     .onChange(of: promptText) { _, newValue in
                         // H-3 修復:debounce 300ms 寫入,使用者連續打字時不會每按鍵觸發磁碟寫入
                         promptWriteTask?.cancel()
@@ -273,14 +286,16 @@ struct LLMSettingsView: View {
                         promptWriteTask?.cancel()
                         llmSettings.llmPrompt = ""
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.borderless)
 
                     Spacer()
 
                     if promptText != LLMSettingsViewModel.defaultLLMPrompt && !promptText.isEmpty {
-                        Text(String(localized: "llm.prompt.customized"))
-                            .font(.caption)
-                            .foregroundColor(.green)
+                        SettingsStatusBadge(
+                            text: String(localized: "llm.prompt.customized"),
+                            symbol: "checkmark.circle.fill",
+                            tint: .purple
+                        )
                     } else {
                         Text(String(localized: "llm.prompt.useDefault"))
                             .font(.caption)
@@ -299,64 +314,92 @@ struct LLMSettingsView: View {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
                     // 測試按鈕
-                    Button(action: performLLMTest) {
-                        HStack {
-                            if isTesting {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                Text(String(localized: "llm.test.testing"))
-                            } else {
-                                Image(systemName: "play.fill")
-                                Text(String(localized: "llm.test.button"))
+                    HStack {
+                        Spacer()
+                        Button(action: performLLMTest) {
+                            HStack(spacing: 6) {
+                                if isTesting {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text(String(localized: "llm.test.testing"))
+                                } else {
+                                    Image(systemName: "play.fill")
+                                    Text(String(localized: "llm.test.button"))
+                                }
                             }
                         }
-                        .frame(maxWidth: .infinity)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isTesting || !llmSettings.llmEnabled)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isTesting)
 
                     // 測試結果顯示
                     if !testInputText.isEmpty || !testOutput.isEmpty || !testError.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 10) {
                             // 輸入文字
-                            Text(String(localized: "llm.test.input"))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(testInputText)
-                                .font(.system(.body, design: .monospaced))
-                                .padding(8)
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(6)
-                                .textSelection(.enabled)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(String(localized: "llm.test.input"))
+                                    .font(.caption.weight(.medium))
+                                    .foregroundColor(.secondary)
+                                Text(testInputText)
+                                    .font(.system(.callout, design: .monospaced))
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.secondary.opacity(0.08))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                    .textSelection(.enabled)
+                            }
 
                             // 輸出文字
                             if !testOutput.isEmpty {
-                                Text(String(localized: "llm.test.output"))
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text(testOutput)
-                                    .font(.system(.body, design: .monospaced))
-                                    .padding(8)
-                                    .background(testSucceeded ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
-                                    .cornerRadius(6)
-                                    .textSelection(.enabled)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(String(localized: "llm.test.output"))
+                                            .font(.caption.weight(.medium))
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                        SettingsStatusBadge(
+                                            text: "成功",
+                                            symbol: "checkmark.circle.fill",
+                                            tint: .green
+                                        )
+                                    }
+                                    Text(testOutput)
+                                        .font(.system(.callout, design: .monospaced))
+                                        .padding(10)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Color.green.opacity(0.1))
+                                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                        .textSelection(.enabled)
+                                }
                             }
 
                             // 錯誤訊息
                             if !testError.isEmpty {
-                                Text(String(localized: "llm.test.error"))
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                                Text(testError)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundColor(.red)
-                                    .padding(8)
-                                    .background(Color.red.opacity(0.1))
-                                    .cornerRadius(6)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(String(localized: "llm.test.error"))
+                                            .font(.caption.weight(.medium))
+                                            .foregroundColor(.red)
+                                        Spacer()
+                                        SettingsStatusBadge(
+                                            text: "失敗",
+                                            symbol: "exclamationmark.triangle.fill",
+                                            tint: .red
+                                        )
+                                    }
+                                    Text(testError)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundColor(.red)
+                                        .padding(10)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Color.red.opacity(0.1))
+                                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                }
                             }
                         }
                     }
                 }
+                .padding(.vertical, 4)
             } header: {
                 Text(String(localized: "llm.section.test"))
             } footer: {
@@ -365,7 +408,7 @@ struct LLMSettingsView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .padding()
+        .formStyle(.grouped)
         .sheet(isPresented: $showingAddCustomProvider) {
             AddCustomProviderSheet(llmSettings: llmSettings) { newProvider, newAPIKey in
                 llmSettings.addCustomProvider(newProvider)

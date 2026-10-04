@@ -9,12 +9,21 @@
 "settings.tab.dictionary" = "词典";
 "settings.tab.history" = "历史";
 
+"settings.pane.general.subtitle" = "管理系统权限、音频输入设备与快捷键行为";
+"settings.pane.transcription.subtitle" = "设置语音识别的主要语言";
+"settings.pane.model.subtitle" = "选择识别引擎与管理本地 Whisper 模型";
+"settings.pane.llm.subtitle" = "使用大语言模型自动修正转写文本与标点";
+"settings.pane.dictionary.subtitle" = "自定义文本替换规则，自动校正专有名词";
+"settings.pane.history.subtitle" = "浏览最近的语音输入历史与快速复制";
+
 /* MARK: - GeneralSettingsView */
 "general.section.permissions" = "权限状态";
 "general.permission.microphone" = "麦克风";
 "general.permission.speechRecognition" = "语音识别";
 "general.permission.accessibility" = "辅助功能";
 "general.permission.requestAll" = "请求权限";
+"general.permission.granted" = "已授权";
+"general.permission.notGranted" = "未授权";
 "general.permission.footer" = "点击任意项目可查看或设置权限";
 
 "general.section.audioInput" = "音频输入";

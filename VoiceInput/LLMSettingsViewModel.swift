@@ -129,6 +129,20 @@ final class LLMSettingsViewModel: ObservableObject {
         self.keychain = keychain ?? KeychainHelper.shared
         self.userDefaults = userDefaults
 
+        // 將所有 @AppStorage 重新綁定到注入的 userDefaults。
+        // 原因：@AppStorage 若未指定 store，一律讀寫 UserDefaults.standard，會忽略注入的 userDefaults。
+        // 單元測試以 VoiceInput.app 為 TEST_HOST 執行，.standard 即為使用者真實的設定檔，
+        // 未綁定時測試會覆蓋使用者的 LLM 設定（例如清空 llmPrompt、改寫 llmModel）。
+        // 注意：直接指派底線屬性（_xxx）不會觸發 didSet，因此不會有副作用。
+        self._llmProvider = AppStorage(wrappedValue: LLMProvider.openAI.rawValue, "llmProvider", store: userDefaults)
+        self._llmEnabled = AppStorage(wrappedValue: false, "llmEnabled", store: userDefaults)
+        self._llmURL = AppStorage(wrappedValue: "", "llmURL", store: userDefaults)
+        self._llmModel = AppStorage(wrappedValue: "", "llmModel", store: userDefaults)
+        self._llmPrompt = AppStorage(wrappedValue: "", "llmPrompt", store: userDefaults)
+        self._selectedCustomProviderId = AppStorage("selectedCustomProviderId", store: userDefaults)
+        self._customProvidersData = AppStorage(wrappedValue: Data(), "customProvidersData", store: userDefaults)
+        self._builtInProviderSettingsData = AppStorage(wrappedValue: Data(), "builtInProviderSettingsData", store: userDefaults)
+
         setupAPIKeySaving()
         loadCustomProviders()
         loadBuiltInProviderSettingsData()
