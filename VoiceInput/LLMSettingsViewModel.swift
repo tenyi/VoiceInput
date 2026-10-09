@@ -105,6 +105,9 @@ final class LLMSettingsViewModel: ObservableObject {
 
     @AppStorage("llmPrompt") var llmPrompt: String = ""
 
+    /// 依錄音時的前景 App 附加風格補充
+    @AppStorage("llmContextAwareEnabled") var llmContextAwareEnabled: Bool = true
+
     @AppStorage("selectedCustomProviderId") var selectedCustomProviderId: String? {
         didSet {
             let provider = currentLLMProvider
@@ -119,7 +122,17 @@ final class LLMSettingsViewModel: ObservableObject {
     @AppStorage("builtInProviderSettingsData") private var builtInProviderSettingsData: Data = Data()
     private var builtInProviderSettings: [String: BuiltInProviderSettings] = [:]
 
-    static let defaultLLMPrompt = "你是專業的校稿員，只做以下兩件事：1. 修正錯字。 2. 根據語氣加入適當的標點符號。 請直接輸出修正後的文字，不要包含任何其他說明或解釋。"
+    static let defaultLLMPrompt = """
+    你是語音輸入的文字整理器。使用者透過語音產生一段逐字稿，你的任務是把它整理成可以直接送出的文字。
+
+    規則：
+    1. 修正語音辨識造成的錯字、同音字與斷詞錯誤。
+    2. 依語氣加入適當的標點符號，必要時分段。
+    3. 刪除無意義的贅詞與口頭禪（例如：嗯、呃、那個、就是說、重複的「然後」），但保留有語意的詞。
+    4. 說話者自我更正時（例如「三點，不對，四點」），只保留更正後的內容。
+    5. 說話者明顯在列舉時（例如「第一…第二…」），整理為條列格式。
+    6. 保持原意、原本使用的語言與說話者的口吻；不要摘要、擴寫、翻譯，也不要加入原文沒有的資訊。
+    """
 
     private let keychain: KeychainProtocol
     private let userDefaults: UserDefaults
@@ -139,6 +152,7 @@ final class LLMSettingsViewModel: ObservableObject {
         self._llmURL = AppStorage(wrappedValue: "", "llmURL", store: userDefaults)
         self._llmModel = AppStorage(wrappedValue: "", "llmModel", store: userDefaults)
         self._llmPrompt = AppStorage(wrappedValue: "", "llmPrompt", store: userDefaults)
+        self._llmContextAwareEnabled = AppStorage(wrappedValue: true, "llmContextAwareEnabled", store: userDefaults)
         self._selectedCustomProviderId = AppStorage("selectedCustomProviderId", store: userDefaults)
         self._customProvidersData = AppStorage(wrappedValue: Data(), "customProvidersData", store: userDefaults)
         self._builtInProviderSettingsData = AppStorage(wrappedValue: Data(), "builtInProviderSettingsData", store: userDefaults)
@@ -382,7 +396,10 @@ final class LLMSettingsViewModel: ObservableObject {
     /// 解析最終要送給 LLM 請求的組態
     /// 為了絕對的準確性：實際發送請求時不看 ViewModel 當下可能處於過渡期的 llmAPIKey
     /// 而是直接同步重拉一次 Keychain，確保每次呼叫 LLM 必定使用符合當前 Provider/customId 的正確金鑰。
-    func resolveEffectiveConfiguration() -> EffectiveLLMConfiguration {
+    /// - Parameters:
+    ///   - targetBundleID: 錄音開始時的前景 App bundle ID,用於決定風格補充
+    ///   - vocabulary: 注入提示詞的專有名詞
+    func resolveEffectiveConfiguration(targetBundleID: String? = nil, vocabulary: [String] = []) -> EffectiveLLMConfiguration {
         let providerString = userDefaults.string(forKey: "llmProvider") ?? LLMProvider.openAI.rawValue
         let customId = userDefaults.string(forKey: "selectedCustomProviderId")
         // H-4 修復:用 enum case 名比對
@@ -411,7 +428,9 @@ final class LLMSettingsViewModel: ObservableObject {
             apiKey: exactAPIKey,
             url: llmURL,
             model: llmModel,
-            selectedCustomProvider: selectedCustomProvider
+            selectedCustomProvider: selectedCustomProvider,
+            style: llmContextAwareEnabled ? AppContextResolver.style(forBundleID: targetBundleID) : .general,
+            vocabulary: vocabulary
         )
     }
     
@@ -421,7 +440,9 @@ final class LLMSettingsViewModel: ObservableObject {
         apiKey: String,
         url: String,
         model: String,
-        selectedCustomProvider: CustomLLMProvider?
+        selectedCustomProvider: CustomLLMProvider?,
+        style: LLMContextStyle = .general,
+        vocabulary: [String] = []
     ) -> EffectiveLLMConfiguration {
         var resolvedPrompt = prompt.isEmpty ? LLMSettingsViewModel.defaultLLMPrompt : prompt
         var resolvedProvider = provider
@@ -441,7 +462,7 @@ final class LLMSettingsViewModel: ObservableObject {
         }
         
         return EffectiveLLMConfiguration(
-            prompt: resolvedPrompt,
+            prompt: LLMPromptBuilder.buildSystemPrompt(base: resolvedPrompt, style: style, vocabulary: vocabulary),
             provider: resolvedProvider,
             apiKey: resolvedAPIKey,
             url: resolvedURL,

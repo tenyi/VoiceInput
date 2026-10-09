@@ -37,6 +37,17 @@ final class DictionaryManagerTests: XCTestCase {
         XCTAssertEqual(manager.items.first?.replacement, "tested")
     }
 
+    func testVocabularyTerms_excludesDisabledAndDeduplicates() {
+        manager.addItems([
+            DictionaryItem(original: "a", replacement: "VoiceInput"),
+            DictionaryItem(original: "b", replacement: " VoiceInput "),
+            DictionaryItem(original: "c", replacement: "Whisper", isEnabled: false),
+            DictionaryItem(original: "d", replacement: "Typeless"),
+            DictionaryItem(original: "e", replacement: "  ")
+        ])
+        XCTAssertEqual(manager.vocabularyTerms(), ["VoiceInput", "Typeless"])
+    }
+
     func testDeleteItem() {
         manager.addItem(original: "test", replacement: "tested")
         let item = manager.items.first!

@@ -132,6 +132,21 @@ class DictionaryManager: ObservableObject {
         return processedText
     }
 
+    /// 啟用項目的 replacement,去空白、去重,保持原順序(供 LLM 提示詞作為專有名詞)
+    func vocabularyTerms() -> [String] {
+        let snapshot: [DictionaryItem] = {
+            snapshotLock.lock()
+            defer { snapshotLock.unlock() }
+            return cachedSnapshot
+        }()
+
+        var seen = Set<String>()
+        return snapshot
+            .filter { $0.isEnabled }
+            .map { $0.replacement.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
     /// H-11 修復:取得 (or 建立並快取) 預編譯 NSRegularExpression
     private func cachedRegex(for item: DictionaryItem) -> NSRegularExpression {
         let key = RegexCacheKey(original: item.original, isCaseSensitive: item.isCaseSensitive)

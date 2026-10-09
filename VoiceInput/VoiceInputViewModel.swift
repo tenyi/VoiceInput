@@ -37,6 +37,8 @@ enum TimeConstants {
     static let windowHideDelay: Double = 1.0
     /// 焦點切換延遲：確保目標應用程式取得焦點
     static let focusSwitchDelay: Double = 0.1
+    /// 等待最終辨識結果的上限：逾時則以目前已有的文字繼續
+    static let finalTranscriptionTimeout: Double = 15.0
 }
 
 /// 負責管理 VoiceInput 應用程式狀態的 ViewModel
@@ -46,7 +48,10 @@ class VoiceInputViewModel: ObservableObject {
 
     // MARK: - 持久化設定 (Refactored from AppStorage for DI support)
     @Published var selectedLanguage: String {
-        didSet { userDefaults.set(selectedLanguage, forKey: "selectedLanguage") }
+        didSet {
+            userDefaults.set(selectedLanguage, forKey: "selectedLanguage")
+            preloadWhisperModelIfNeeded()
+        }
     }
     @Published var autoInsertText: Bool {
         didSet { userDefaults.set(autoInsertText, forKey: "autoInsertText") }
@@ -59,7 +64,10 @@ class VoiceInputViewModel: ObservableObject {
         didSet { userDefaults.set(recordingTriggerMode, forKey: "recordingTriggerMode") }
     }
     @Published var selectedSpeechEngine: String {
-        didSet { userDefaults.set(selectedSpeechEngine, forKey: "selectedSpeechEngine") }
+        didSet {
+            userDefaults.set(selectedSpeechEngine, forKey: "selectedSpeechEngine")
+            preloadWhisperModelIfNeeded()
+        }
     }
     @Published private var selectedInputDeviceStorage: String {
         didSet { userDefaults.set(selectedInputDeviceStorage, forKey: "selectedInputDeviceID") }
@@ -140,6 +148,15 @@ class VoiceInputViewModel: ObservableObject {
     /// 輸入模擬器 (依賴注入)
     private var inputSimulator: InputSimulatorProtocol
 
+    /// 前景 App 提供者 (依賴注入)
+    private let frontmostAppProvider: FrontmostAppProviding
+
+    /// 錄音開始時的前景 App bundle ID,用於 LLM 風格補充
+    private var recordingTargetBundleID: String?
+
+    /// 目前等待中的轉寫結束識別碼;完成回呼與逾時只有先到者生效
+    private var pendingFinishID: UUID?
+
     /// 權限管理員
     // 注意：不使用 @ObservedObject，因為該 wrapper 只在 SwiftUI View 中有效。
     // 子物件的 objectWillChange 透過 Combine 在 setupTranscriptionManager() 中手動橋接。
@@ -166,7 +183,8 @@ class VoiceInputViewModel: ObservableObject {
         llmSettingsViewModel: LLMSettingsViewModel? = nil,
         modelManager: ModelManager? = nil,
         userDefaults: UserDefaults = .standard,
-        clock: Clock = SystemClock()
+        clock: Clock = SystemClock(),
+        frontmostAppProvider: FrontmostAppProviding = WorkspaceFrontmostAppProvider()
     ) {
         self.hotkeyManager = hotkeyManager
         self.audioEngine = audioEngine
@@ -176,6 +194,7 @@ class VoiceInputViewModel: ObservableObject {
         self.modelManager = modelManager ?? AppDelegate.sharedModelManager
         self.userDefaults = userDefaults
         self.clock = clock
+        self.frontmostAppProvider = frontmostAppProvider
         
         // Initialize properties from UserDefaults
         self.selectedLanguage = userDefaults.string(forKey: "selectedLanguage") ?? "zh-TW"
@@ -193,6 +212,7 @@ class VoiceInputViewModel: ObservableObject {
         setupHotkeys()
         refreshAudioDevices()
         setupTranscriptionManager()
+        preloadWhisperModelIfNeeded()
     }
 
     @MainActor
@@ -367,6 +387,14 @@ class VoiceInputViewModel: ObservableObject {
         stopRecordingAndTranscribe()
     }
 
+    /// 使用 Whisper 時預先在背景載入模型,避免第一次錄音才載入
+    private func preloadWhisperModelIfNeeded() {
+        guard currentSpeechEngine == .whisper,
+              let modelURL = modelManager.getSelectedModelURL() else { return }
+        transcriptionManager.configure(engine: .whisper, modelURL: modelURL, language: selectedLanguage)
+        transcriptionManager.preloadModel()
+    }
+
     /// 開始錄音
     private func startRecording() {
         // 確保 WindowManager 已有 viewModel 設定
@@ -396,6 +424,9 @@ class VoiceInputViewModel: ObservableObject {
             }
             transcriptionManager.configure(engine: .whisper, modelURL: modelURL, language: selectedLanguage)
         }
+
+        // 浮動視窗不搶焦點,此時的前景 App 即為輸入目標
+        recordingTargetBundleID = frontmostAppProvider.frontmostBundleIdentifier()
 
         // 顯示浮動視窗（錄音模式）
         WindowManager.shared.showFloatingWindow(isRecording: true)
@@ -433,7 +464,6 @@ class VoiceInputViewModel: ObservableObject {
         // 停止錄音
         logger.info("[HotkeyFlow] stopRecordingAndTranscribe：開始停止錄音與轉寫")
         audioEngine.stopRecording()
-        transcriptionManager.stopTranscription()
         // 通知 Controller 錄音已結束
         hotkeyController.isRecording = false
 
@@ -443,11 +473,25 @@ class VoiceInputViewModel: ObservableObject {
         // 顯示浮動視窗（轉寫模式）
         WindowManager.shared.showFloatingWindow(isRecording: false)
 
-        // 延遲一點時間讓用户看到轉寫動畫
-        Task { @MainActor [weak self] in
-            await self?.clock.sleep(for: .seconds(0.5))
-            self?.finishTranscribing()
+        // 等最終辨識結果回來再插入(Whisper 大模型可能需數秒),逾時則以現有文字繼續
+        let finishID = UUID()
+        pendingFinishID = finishID
+        transcriptionManager.stopTranscription { [weak self] in
+            self?.completeTranscribing(finishID)
         }
+        Task { @MainActor [weak self] in
+            await self?.clock.sleep(for: .seconds(TimeConstants.finalTranscriptionTimeout))
+            self?.completeTranscribing(finishID)
+        }
+    }
+
+    /// 最終結果到達或逾時後進入插入流程(只執行一次)
+    private func completeTranscribing(_ finishID: UUID) {
+        guard pendingFinishID == finishID else { return }
+        pendingFinishID = nil
+        // Combine sink 會延後一個 run loop 才同步,這裡直接取最新結果
+        transcribedText = transcriptionManager.transcribedText
+        finishTranscribing()
     }
 
     /// 完成轉寫，插入文字並隱藏視窗
@@ -481,7 +525,10 @@ class VoiceInputViewModel: ObservableObject {
     private func performLLMCorrection(completion: @escaping () -> Void) {
         // 透過 AppDelegate 的靜態 sharedLLMSettingsViewModel 取得設定，
         // 避免在 ViewModel 中直接依賴 EnvironmentObject
-        let config = self.llmSettingsViewModel.resolveEffectiveConfiguration()
+        let config = self.llmSettingsViewModel.resolveEffectiveConfiguration(
+            targetBundleID: recordingTargetBundleID,
+            vocabulary: DictionaryManager.shared.vocabularyTerms()
+        )
 
         Task {
             do {

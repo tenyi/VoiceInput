@@ -11,9 +11,20 @@ protocol TranscriptionServiceProtocol {
     /// 啟動服務
     func start()
     /// 停止服務（優雅停止：等待最終結果）
-    func stop()
+    /// - Parameter completion: 最終結果已回報（或確定不會再有結果）時呼叫一次
+    func stop(completion: @escaping () -> Void)
     /// 處理音訊緩衝區
     func process(buffer: AVAudioPCMBuffer)
+    /// 預先載入資源（如 Whisper 模型），避免第一次錄音才載入
+    func preload()
+}
+
+extension TranscriptionServiceProtocol {
+    func stop() {
+        stop(completion: {})
+    }
+
+    func preload() {}
 }
 
 /// 使用 Apple SFSpeechRecognizer 的轉錄服務實作
@@ -39,13 +50,19 @@ final class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
     private var finalizeTimeoutTimer: Timer?
     /// 是否已進入「等待最終結果」狀態（防止重複清理）
     private var isWaitingForFinal = false
+    /// stop() 傳入的完成回呼，於資源清理時呼叫
+    private var stopCompletion: (() -> Void)?
+    /// 提示辨識器優先辨識的專有名詞
+    private let contextualStringsProvider: () -> [String]
 
     init(
         speechRecognizerFactory: @escaping (Locale) -> SFSpeechRecognizer? = { SFSpeechRecognizer(locale: $0) },
-        finalizeTimeout: Double = 1.5
+        finalizeTimeout: Double = 1.5,
+        contextualStringsProvider: @escaping () -> [String] = { DictionaryManager.shared.vocabularyTerms() }
     ) {
         self.speechRecognizerFactory = speechRecognizerFactory
         self.finalizeTimeout = finalizeTimeout
+        self.contextualStringsProvider = contextualStringsProvider
         self.speechRecognizer = speechRecognizerFactory(Locale(identifier: "zh-TW"))
     }
 
@@ -69,6 +86,9 @@ final class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
         }
         // 啟用部分結果回報 (即時顯示)
         recognitionRequest.shouldReportPartialResults = true
+        // 由辨識器自動加標點；詞典專有名詞作為辨識提示
+        recognitionRequest.addsPunctuation = true
+        recognitionRequest.contextualStrings = contextualStringsProvider()
         isWaitingForFinal = false
     }
 
@@ -76,8 +96,16 @@ final class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
     /// 1. 先呼叫 endAudio() 告知不再有新音訊
     /// 2. 等待 isFinal callback（最多 1.5 秒）
     /// 3. 超時後才強制 cancel()（T1-2）
-    func stop() {
+    func stop(completion: @escaping () -> Void) {
         logger.info("SFSpeechTranscriptionService: 開始優雅停止流程")
+        stopCompletion = completion
+
+        // 尚未開始辨識（未收到任何音訊），不會有最終結果
+        guard recognitionTask != nil else {
+            cleanupRecognition()
+            return
+        }
+
         // 通知 SFSpeech 不再有新音訊，觸發最終辨識
         recognitionRequest?.endAudio()
         isWaitingForFinal = true
@@ -183,5 +211,9 @@ final class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
         recognitionTask = nil
         recognitionRequest = nil
         logger.info("SFSpeechTranscriptionService: 資源已清理")
+
+        let completion = stopCompletion
+        stopCompletion = nil
+        completion?()
     }
 }

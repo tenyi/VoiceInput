@@ -138,16 +138,22 @@ class LLMService {
             throw LLMServiceError.invalidConfiguration
         }
 
+        // 逐字稿協定：以標籤包裝逐字稿，避免 LLM 將口述內容當成指令執行
+        let systemPrompt = LLMPromptBuilder.applyTranscriptProtocol(to: prompt)
+        let userText = LLMPromptBuilder.wrapTranscript(text)
+
+        let output: String
         switch provider {
         case .openAI:
-            return try await callOpenAI(text: text, prompt: prompt, apiKey: apiKey, model: model)
+            output = try await callOpenAI(text: userText, prompt: systemPrompt, apiKey: apiKey, model: model)
         case .anthropic:
-            return try await callAnthropic(text: text, prompt: prompt, apiKey: apiKey, model: model)
+            output = try await callAnthropic(text: userText, prompt: systemPrompt, apiKey: apiKey, model: model)
         case .ollama:
-            return try await callOllama(text: text, prompt: prompt, url: url, model: model)
+            output = try await callOllama(text: userText, prompt: systemPrompt, url: url, model: model)
         case .custom:
-            return try await callCustomAPI(text: text, prompt: prompt, apiKey: apiKey, url: url, model: model)
+            output = try await callCustomAPI(text: userText, prompt: systemPrompt, apiKey: apiKey, url: url, model: model)
         }
+        return LLMPromptBuilder.sanitizeOutput(output)
     }
 
     // MARK: - 共用請求與解析邏輯

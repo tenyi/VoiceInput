@@ -74,6 +74,9 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     nonisolated private let partialWindowFrames: Int = 16000 * 30
     /// C-2 修復：等待 in-flight buffer 處理的逾時秒數
     nonisolated private let stopInFlightTimeout: TimeInterval = 2.0
+    /// 每 30 秒音訊窗的辨識耗時超過此值即視為慢模型，停用錄音中的部分轉寫，
+    /// 避免放開快捷鍵時還要等進行中的部分轉寫跑完才能開始最終轉寫
+    nonisolated private let slowTranscriptionThreshold: TimeInterval = 1.0
 
     private var isRunning = false
     private var isTranscribing = false
@@ -84,6 +87,12 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     private var isModelReady = false
     /// H-6 修復:模型載入失敗的錯誤(供 stop() 結束時回報)
     private var modelLoadError: Error?
+    /// 進行中的模型載入；最終轉寫需等它完成
+    private var modelLoadTask: Task<Void, Never>?
+    /// 是否在錄音中執行部分轉寫（慢模型會自動關閉）
+    private var isPartialTranscriptionEnabled = true
+    /// stop() 傳入的完成回呼，最終轉寫結束時呼叫
+    private var stopCompletion: (() -> Void)?
 
     init(modelURL: URL, language: String = "zh-TW") {
         self.modelURL = modelURL
@@ -117,39 +126,70 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
         accumulatedBuffer.removeAll(keepingCapacity: false)
         accumulatedBuffer.reserveCapacity(maxBufferCapacity)
 
-        // H-6 修復:模型未就緒時,於 start() 內以背景 Task 載入(不阻塞主執行緒)。
-        // WhisperContext.init 可能耗時數秒(特別是大模型),原本在 init 同步執行會凍結 UI。
-        if whisperContext == nil && modelLoadError == nil && !isModelReady {
-            loadModelAsync()
-        }
+        // H-6 修復:模型未就緒時於背景載入(通常已由 preload() 預先載入)
+        loadModelIfNeeded()
     }
 
-    /// H-6 修復:背景載入 WhisperContext,完成後設 isModelReady 並回報結果。
-    private func loadModelAsync() {
-        guard let modelURL = modelURL else { return }
-        let path = modelURL.path
+    func preload() {
+        loadModelIfNeeded()
+    }
 
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            do {
-                let context = try WhisperContext(modelPath: path)
+    /// H-6 修復:在背景執行緒載入 WhisperContext 並預熱,完成後設 isModelReady 並回報結果。
+    private func loadModelIfNeeded() {
+        guard whisperContext == nil, modelLoadError == nil, modelLoadTask == nil, let modelURL else { return }
+        let path = modelURL.path
+        let language = selectedLanguage
+
+        modelLoadTask = Task { [weak self] in
+            // 大模型載入需數秒,放到背景執行緒避免凍結 UI
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<WhisperContext, Error> in
+                do {
+                    let context = try WhisperContext(modelPath: path)
+                    // 預熱:第一次推論需初始化 GPU 資源,先以 1 秒靜音跑一次
+                    _ = try? await context.transcribe(samples: [Float](repeating: 0, count: 16000), language: language)
+                    return .success(context)
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            guard let self else { return }
+            switch result {
+            case .success(let context):
                 self.whisperContext = context
                 self.isModelReady = true
                 self.logger.info("Whisper 模型非同步載入成功")
-            } catch {
+            case .failure(let error):
                 self.modelLoadError = error
                 // L-5 修復:載入失敗時重置 isRunning,避免下次 start() 認為引擎仍在運行
                 self.isRunning = false
                 self.logger.error("Whisper 模型非同步載入失敗: \(error.localizedDescription)")
-                // 此時 callback 已由 TranscriptionManager.setupTranscriptionCallback 設定,
-                // 不再像舊版 init 那樣「默默丟掉」錯誤。
                 self.onTranscriptionResult?(.failure(error))
             }
         }
     }
 
-    func stop() {
+    /// 以耗時判斷模型速度,慢模型停用部分轉寫
+    private func recordTranscriptionDuration(_ elapsed: TimeInterval, frameCount: Int) {
+        guard isPartialTranscriptionEnabled else { return }
+        // whisper 以 30 秒為一個音訊窗處理,依窗數換算單窗耗時
+        let windows = max(1.0, (Double(frameCount) / Double(partialWindowFrames)).rounded(.up))
+        if elapsed / windows > slowTranscriptionThreshold {
+            isPartialTranscriptionEnabled = false
+            logger.info("Whisper 辨識較慢(\(elapsed, format: .fixed(precision: 2))s),停用錄音中的部分轉寫")
+        }
+    }
+
+    /// 呼叫並清除 stop() 的完成回呼
+    private func completeStop() {
+        let completion = stopCompletion
+        stopCompletion = nil
+        completion?()
+    }
+
+    func stop(completion: @escaping () -> Void) {
         isRunning = false
+        stopCompletion = completion
 
         // C-2 修復:將最終轉寫邏輯排入 Task,先等待 in-flight 的 process()
         // 全部完成 append 後再快照 buffer,避免在 stop 期間靜默丟失音訊。
@@ -165,37 +205,11 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
             if self.isTranscribing {
                 // 轉寫正在進行中,標記等待最後一次轉寫完成
                 self.pendingFinalTranscription = true
-            } else if !self.accumulatedBuffer.isEmpty {
+            } else {
                 // 此時所有 in-flight 已完成,buffer 已是完整快照
-                let frames = self.accumulatedBuffer
-                let language = self.selectedLanguage
-                await self.performFinalTranscription(frames: frames, language: language)
+                await self.transcribeFinalIfNeeded()
             }
         }
-    }
-
-    /// 執行最終轉寫（由 stop() 呼叫）
-    private func performFinalTranscription(frames: [Float], language: String) async {
-        guard let context = whisperContext else {
-            onTranscriptionResult?(.failure(WhisperError.notInitialized))
-            return
-        }
-
-        guard !isTranscribing else { return }
-        isTranscribing = true
-        pendingFinalTranscription = false
-
-        do {
-            let text = try await context.transcribe(samples: frames, language: language)
-            if !text.isEmpty {
-                onTranscriptionResult?(.success(text))
-            }
-        } catch {
-            logger.error("Whisper final 轉錄失敗: \(error.localizedDescription)")
-            onTranscriptionResult?(.failure(error))
-        }
-
-        finalizeTranscriptionCycle()
     }
 
     nonisolated func process(buffer: AVAudioPCMBuffer) {
@@ -225,7 +239,7 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
             guard self.isRunning else { return }
 
             // H-6 修復:模型尚未載入完成時,只 buffer 不觸發轉錄(避免 notInitialized 錯誤)
-            guard self.isModelReady else { return }
+            guard self.isModelReady, self.isPartialTranscriptionEnabled else { return }
 
             let duration = Double(self.accumulatedBuffer.count) / Double(self.sampleRate)
             let shouldStartChunk = duration > self.partialTranscriptionMinDuration && !self.isTranscribing
@@ -256,7 +270,9 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
         let frames = Array(accumulatedBuffer[startIndex..<totalFrames])
 
         do {
+            let startedAt = Date()
             let text = try await context.transcribe(samples: frames, language: selectedLanguage)
+            recordTranscriptionDuration(Date().timeIntervalSince(startedAt), frameCount: frames.count)
             if !text.isEmpty {
                 onTranscriptionResult?(.success(text))
             }
@@ -269,18 +285,31 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
     }
 
     private func transcribeFinalIfNeeded() async {
+        // 模型可能仍在載入(剛啟動就錄音),等載入完成
+        await modelLoadTask?.value
+
+        guard !isTranscribing else {
+            pendingFinalTranscription = true
+            return
+        }
+        guard !accumulatedBuffer.isEmpty else {
+            completeStop()
+            return
+        }
         guard let context = whisperContext else {
-            onTranscriptionResult?(.failure(WhisperError.notInitialized))
+            onTranscriptionResult?(.failure(modelLoadError ?? WhisperError.notInitialized))
+            completeStop()
             return
         }
 
-        guard !isTranscribing, !accumulatedBuffer.isEmpty else { return }
         isTranscribing = true
         pendingFinalTranscription = false
         let frames = accumulatedBuffer
 
         do {
+            let startedAt = Date()
             let text = try await context.transcribe(samples: frames, language: selectedLanguage)
+            recordTranscriptionDuration(Date().timeIntervalSince(startedAt), frameCount: frames.count)
             if !text.isEmpty {
                 onTranscriptionResult?(.success(text))
             }
@@ -290,11 +319,12 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
         }
 
         finalizeTranscriptionCycle()
+        completeStop()
     }
 
     private func finalizeTranscriptionCycle() {
         isTranscribing = false
-        let shouldRunFinal = !isRunning && pendingFinalTranscription && !accumulatedBuffer.isEmpty
+        let shouldRunFinal = !isRunning && pendingFinalTranscription
 
         if shouldRunFinal {
             Task {

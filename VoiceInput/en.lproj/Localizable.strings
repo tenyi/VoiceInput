@@ -92,6 +92,8 @@
 "llm.prompt.customized" = "Customized";
 "llm.prompt.useDefault" = "Using Default";
 "llm.prompt.footer" = "Edit the prompt to change how LLM corrects text";
+"llm.prompt.contextAware" = "Adjust tone by app";
+"llm.prompt.contextAware.help" = "Adds a chat, email, or coding style to the prompt based on the app in use when recording starts";
 
 "llm.section.test" = "Test LLM";
 "llm.test.button" = "Test LLM Settings";

@@ -89,6 +89,8 @@
 "llm.prompt.customized" = "已自定义";
 "llm.prompt.useDefault" = "使用默认";
 "llm.prompt.footer" = "编辑提示词来改变 LLM 修正文字的方式";
+"llm.prompt.contextAware" = "按应用程序调整语气";
+"llm.prompt.contextAware.help" = "根据开始录音时使用的 App，自动附加聊天、邮件或代码风格";
 
 "llm.section.test" = "测试 LLM";
 "llm.test.button" = "测试 LLM 设置";

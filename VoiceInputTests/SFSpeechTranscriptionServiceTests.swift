@@ -228,6 +228,16 @@ struct SFSpeechTranscriptionServiceTests {
         service.stop()
     }
     
+    @Test("尚未收到音訊時 stop 立即呼叫完成回呼")
+    func testStop_withoutAudio_completesImmediately() {
+        let service = SFSpeechTranscriptionService(contextualStringsProvider: { [] })
+        service.start()
+
+        var completed = false
+        service.stop { completed = true }
+        #expect(completed)
+    }
+
     /// 測試 updateLocale 更新語音識別語言
     @Test("updateLocale 成功更新語音識別語言")
     func testUpdateLocale() async {

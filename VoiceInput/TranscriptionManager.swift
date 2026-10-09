@@ -140,9 +140,20 @@ class TranscriptionManager: ObservableObject {
         logger.info("開始轉錄")
     }
 
+    /// 預先載入目前服務的資源（如 Whisper 模型）
+    func preloadModel() {
+        transcriptionService.preload()
+    }
+
     /// 停止轉錄
-    func stopTranscription() {
-        transcriptionService.stop()
+    /// - Parameter completion: 最終結果已寫入 transcribedText 後於主執行緒呼叫
+    func stopTranscription(completion: @escaping () -> Void = {}) {
+        transcriptionService.stop {
+            // 結果回呼同樣經 main.async 寫入,排在其後即可確保文字已更新
+            DispatchQueue.main.async {
+                completion()
+            }
+        }
         // 重置轉錄狀態，確保下次錄音前狀態正確
         isTranscribing = false
         logger.info("停止轉錄")

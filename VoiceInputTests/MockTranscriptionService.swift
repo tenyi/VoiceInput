@@ -21,9 +21,25 @@ class MockTranscriptionService: TranscriptionServiceProtocol {
         startCallCount += 1
     }
 
+    /// 為 true 時 stop 立即完成;為 false 時保留回呼,由測試呼叫 completeStop()
+    var completesStopImmediately = true
+    /// 尚未呼叫的 stop 完成回呼
+    private var pendingStopCompletion: (() -> Void)?
+
     /// 停止服務
-    func stop() {
+    func stop(completion: @escaping () -> Void) {
         stopCallCount += 1
+        if completesStopImmediately {
+            completion()
+        } else {
+            pendingStopCompletion = completion
+        }
+    }
+
+    /// 模擬最終結果完成
+    func completeStop() {
+        pendingStopCompletion?()
+        pendingStopCompletion = nil
     }
 
     /// 處理音訊緩衝區

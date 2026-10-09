@@ -122,6 +122,33 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertTrue(request.url?.absoluteString.contains("api.openai.com") ?? false)
     }
 
+    /// OpenAI request:system 附加逐字稿協定,user 為包裝後逐字稿
+    func test_openAI_appliesTranscriptProtocol() async throws {
+        let mock = self.makeMock(data: openAISuccessBody(text: "ok"), statusCode: 200)
+        let service = LLMService(networkProvider: mock)
+
+        _ = try await service.correctText(
+            text: "原文", prompt: "請修正", provider: .openAI, apiKey: "sk-test", url: "", model: ""
+        )
+
+        let body = try XCTUnwrap(mock.requestsReceived.first?.httpBody)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
+        XCTAssertEqual(messages[0]["content"], LLMPromptBuilder.applyTranscriptProtocol(to: "請修正"))
+        XCTAssertEqual(messages[1]["content"], LLMPromptBuilder.wrapTranscript("原文"))
+    }
+
+    /// 回應若回顯 transcript 標籤應被移除
+    func test_correctText_sanitizesEchoedTags() async throws {
+        let mock = self.makeMock(data: openAISuccessBody(text: "<transcript>\n修正後\n</transcript>"), statusCode: 200)
+        let service = LLMService(networkProvider: mock)
+
+        let result = try await service.correctText(
+            text: "原文", prompt: "p", provider: .openAI, apiKey: "sk-test", url: "", model: ""
+        )
+        XCTAssertEqual(result, "修正後")
+    }
+
     /// OpenAI 預設 model 為 gpt-4o-mini
     func test_openAI_defaultModel() async throws {
         let mock = self.makeMock(data: openAISuccessBody(text: "ok"), statusCode: 200)
@@ -252,6 +279,22 @@ final class LLMServiceTests: XCTestCase {
         let request = try XCTUnwrap(mock.requestsReceived.first)
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "sk-ant")
         XCTAssertEqual(request.value(forHTTPHeaderField: "anthropic-version"), "2023-06-01")
+    }
+
+    /// Anthropic request:system 附加逐字稿協定,user 為包裝後逐字稿
+    func test_anthropic_appliesTranscriptProtocol() async throws {
+        let mock = self.makeMock(data: anthropicSuccessBody(text: "ok"), statusCode: 200)
+        let service = LLMService(networkProvider: mock)
+
+        _ = try await service.correctText(
+            text: "原文", prompt: "請修正", provider: .anthropic, apiKey: "sk-ant", url: "", model: ""
+        )
+
+        let body = try XCTUnwrap(mock.requestsReceived.first?.httpBody)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["system"] as? String, LLMPromptBuilder.applyTranscriptProtocol(to: "請修正"))
+        let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
+        XCTAssertEqual(messages[0]["content"], LLMPromptBuilder.wrapTranscript("原文"))
     }
 
     /// Anthropic 預設 model 與 max_tokens

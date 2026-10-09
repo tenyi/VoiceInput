@@ -104,6 +104,31 @@ struct VoiceInputTests {
 
         let config = llmSettings.resolveEffectiveConfiguration()
         #expect(config.prompt == "專屬自訂提示詞")
+
+        // 風格補充與詞彙應附加在 Custom Provider 提示詞之後
+        let withStyle = llmSettings.resolveEffectiveConfiguration(targetBundleID: "com.apple.mail", vocabulary: ["VoiceInput"])
+        #expect(withStyle.prompt == LLMPromptBuilder.buildSystemPrompt(base: "專屬自訂提示詞", style: .email, vocabulary: ["VoiceInput"]))
+    }
+
+    @Test
+    @MainActor
+    func effectiveLLMConfig_contextAwareToggleControlsStyle() async throws {
+        let suiteName = "TestDefaults-\(UUID().uuidString)"
+        guard let mockDefaults = UserDefaults(suiteName: suiteName) else {
+             throw NSError(domain: "VoiceInputTests", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create mock UserDefaults"])
+        }
+        mockDefaults.removePersistentDomain(forName: suiteName)
+
+        let llmSettings = LLMSettingsViewModel(keychain: MockKeychain(), userDefaults: mockDefaults)
+        llmSettings.llmPrompt = "BASE"
+
+        #expect(llmSettings.llmContextAwareEnabled)
+        let enabled = llmSettings.resolveEffectiveConfiguration(targetBundleID: "com.tinyspeck.slackmacgap")
+        #expect(enabled.prompt == LLMPromptBuilder.buildSystemPrompt(base: "BASE", style: .chat, vocabulary: []))
+
+        llmSettings.llmContextAwareEnabled = false
+        let disabled = llmSettings.resolveEffectiveConfiguration(targetBundleID: "com.tinyspeck.slackmacgap")
+        #expect(disabled.prompt == "BASE")
     }
 
     // MARK: - T6-1 Trigger Mode 狀態機測試（Press-and-Hold）
@@ -209,6 +234,31 @@ struct VoiceInputTests {
 
     @Test
     @MainActor
+    func viewModel_startRecording_capturesFrontmostApp() async throws {
+        let suiteName = "TestDefaults-\(UUID().uuidString)"
+        guard let mockDefaults = UserDefaults(suiteName: suiteName) else {
+             throw NSError(domain: "VoiceInputTests", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create mock UserDefaults"])
+        }
+        mockDefaults.removePersistentDomain(forName: suiteName)
+        let mockFrontmost = MockFrontmostAppProvider(bundleID: "com.apple.mail")
+
+        let viewModel = VoiceInputViewModel(
+            hotkeyManager: MockHotkeyManager(),
+            audioEngine: MockAudioEngine(),
+            inputSimulator: MockInputSimulator(),
+            userDefaults: mockDefaults,
+            clock: TestClock(),
+            frontmostAppProvider: mockFrontmost
+        )
+
+        #expect(mockFrontmost.callCount == 0)
+        viewModel.toggleRecording()
+        #expect(viewModel.appState == .recording)
+        #expect(mockFrontmost.callCount == 1)
+    }
+
+    @Test
+    @MainActor
     func viewModel_toggleRecording_changesStateAndCallsAudioEngine() async throws {
         // Arrange
         let mockHotkey = MockHotkeyManager()
@@ -255,6 +305,72 @@ struct VoiceInputTests {
         // C1.2:同步斷言 appState = .transcribing(stopRecordingAndTranscribe 內同步設定)
         #expect(viewModel.appState == .transcribing)
         #expect(mockAudio.isRecording == false)
+    }
+
+    /// 建立使用 mock 轉錄服務的 ViewModel,並完成一次「開始 → 停止」錄音
+    @MainActor
+    private func makeViewModelAndStopRecording(
+        service: MockTranscriptionService,
+        clock: Clock
+    ) async throws -> VoiceInputViewModel {
+        let suiteName = "TestDefaults-\(UUID().uuidString)"
+        guard let mockDefaults = UserDefaults(suiteName: suiteName) else {
+             throw NSError(domain: "VoiceInputTests", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create mock UserDefaults"])
+        }
+        mockDefaults.removePersistentDomain(forName: suiteName)
+
+        let viewModel = VoiceInputViewModel(
+            hotkeyManager: MockHotkeyManager(),
+            audioEngine: MockAudioEngine(),
+            inputSimulator: MockInputSimulator(),
+            userDefaults: mockDefaults,
+            clock: clock
+        )
+        viewModel.transcriptionManager.serviceFactory = { _, _, _ in service }
+
+        viewModel.toggleRecording()
+        let debounceDeadline = Date().addingTimeInterval(0.4)
+        while Date() < debounceDeadline {
+            try? await Task.yield()
+        }
+        viewModel.toggleRecording()
+        return viewModel
+    }
+
+    @MainActor
+    private func waitUntil(_ condition: () -> Bool, timeout: TimeInterval = 1.0) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    @Test
+    @MainActor
+    func viewModel_stopRecording_waitsForFinalTranscription() async throws {
+        let service = MockTranscriptionService()
+        service.completesStopImmediately = false
+        let viewModel = try await makeViewModelAndStopRecording(service: service, clock: TimeoutHoldingClock())
+
+        // 最終結果未回來前,維持轉寫狀態(舊版固定 0.5 秒後就結束)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(viewModel.appState == .transcribing)
+
+        service.completeStop()
+        await waitUntil { viewModel.appState == .idle }
+        #expect(viewModel.appState == .idle)
+    }
+
+    @Test
+    @MainActor
+    func viewModel_stopRecording_finishesAfterTimeoutWithoutFinalResult() async throws {
+        let service = MockTranscriptionService()
+        service.completesStopImmediately = false
+        // TestClock 立即返回,等同逾時
+        let viewModel = try await makeViewModelAndStopRecording(service: service, clock: TestClock())
+
+        await waitUntil { viewModel.appState == .idle }
+        #expect(viewModel.appState == .idle)
     }
 
     // MARK: - API Key 切換測試
@@ -306,5 +422,13 @@ class MockKeychain: KeychainProtocol {
     func delete(service: String, account: String) {
         let key = "\(service)-\(account)"
         storage.removeValue(forKey: key)
+    }
+}
+
+/// 逾時等級(>= 10 秒)的 sleep 會一直等待,其餘立即返回
+private struct TimeoutHoldingClock: Clock {
+    func sleep(for duration: Duration) async {
+        guard duration >= .seconds(10) else { return }
+        try? await Task.sleep(for: .seconds(3600))
     }
 }

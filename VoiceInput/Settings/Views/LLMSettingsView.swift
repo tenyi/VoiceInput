@@ -259,7 +259,7 @@ struct LLMSettingsView: View {
             Section {
                 // 使用@State 來處理編輯，若有自訂內容則顯示，否則顯示預設值
                 TextEditor(text: $promptText)
-                    .frame(height: 90)
+                    .frame(height: 160)
                     .font(.system(.body, design: .monospaced))
                     .padding(4)
                     .background(Color(NSColor.textBackgroundColor))
@@ -298,6 +298,15 @@ struct LLMSettingsView: View {
                         )
                     } else {
                         Text(String(localized: "llm.prompt.useDefault"))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Toggle(isOn: $llmSettings.llmContextAwareEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(localized: "llm.prompt.contextAware"))
+                        Text(String(localized: "llm.prompt.contextAware.help"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
