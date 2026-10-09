@@ -13,6 +13,7 @@ struct AddCustomProviderSheet: View {
     @State private var apiKey: String = ""
     @State private var model: String = ""
     @State private var prompt: String = ""
+    @State private var apiFormat: CustomAPIFormat = .openAICompatible
     @State private var selectedTemplate: String = ""
 
     // 預設範本
@@ -52,6 +53,12 @@ struct AddCustomProviderSheet: View {
                 }
 
                 Section(String(localized: "llm.addProvider.section.api")) {
+                    Picker(String(localized: "llm.api.format"), selection: $apiFormat) {
+                        ForEach(CustomAPIFormat.allCases, id: \.self) { format in
+                            Text(format.displayName).tag(format)
+                        }
+                    }
+
                     TextField(String(localized: "llm.api.apiUrl"), text: $apiURL)
                         .textFieldStyle(.roundedBorder)
 
@@ -97,7 +104,8 @@ struct AddCustomProviderSheet: View {
             name: name,
             url: apiURL,
             model: model,
-            prompt: prompt
+            prompt: prompt,
+            apiFormat: apiFormat
         )
         onAdd(provider, apiKey)
         dismiss()

@@ -49,7 +49,8 @@ struct LLMSettingsView: View {
                     provider: config.provider,
                     apiKey: config.apiKey,
                     url: config.url,
-                    model: config.model
+                    model: config.model,
+                    apiFormat: config.apiFormat
                 )
                 await MainActor.run {
                     self.testOutput = correctedText
@@ -165,6 +166,19 @@ struct LLMSettingsView: View {
                     Group {
                         Text("Provider: \(custom.name)")
                             .font(.headline)
+                        Picker(String(localized: "llm.api.format"), selection: Binding(
+                            get: { custom.apiFormat },
+                            set: { newValue in
+                                var updated = custom
+                                updated.apiFormat = newValue
+                                llmSettings.updateCustomProvider(updated)
+                                selectedCustomProvider = updated
+                            }
+                        )) {
+                            ForEach(CustomAPIFormat.allCases, id: \.self) { format in
+                                Text(format.displayName).tag(format)
+                            }
+                        }
                         TextField(String(localized: "llm.api.apiUrl"), text: Binding(
                             get: { custom.url },
                             set: { newValue in

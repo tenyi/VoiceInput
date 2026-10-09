@@ -123,6 +123,7 @@ class LLMService {
     ///   - apiKey: API Key
     ///   - url: API URL (Ollama 或自訂使用)
     ///   - model: 模型名稱
+    ///   - apiFormat: 自訂 Provider 的 API 協定格式（僅 provider 為 .custom 時使用）
     /// - Returns: 修正後的文字
     /// - Throws: 網路或 API 錯誤
     func correctText(
@@ -131,7 +132,8 @@ class LLMService {
         provider: LLMProvider,
         apiKey: String,
         url: String,
-        model: String
+        model: String,
+        apiFormat: CustomAPIFormat = .openAICompatible
     ) async throws -> String {
         // 驗證必要參數
         guard !text.isEmpty else {
@@ -151,7 +153,15 @@ class LLMService {
         case .ollama:
             output = try await callOllama(text: userText, prompt: systemPrompt, url: url, model: model)
         case .custom:
-            output = try await callCustomAPI(text: userText, prompt: systemPrompt, apiKey: apiKey, url: url, model: model)
+            switch apiFormat {
+            case .openAICompatible:
+                output = try await callCustomAPI(text: userText, prompt: systemPrompt, apiKey: apiKey, url: url, model: model)
+            case .anthropic:
+                guard !url.isEmpty else { throw LLMServiceError.invalidConfiguration }
+                output = try await callAnthropic(text: userText, prompt: systemPrompt, apiKey: apiKey, model: model, endpoint: normalizeURL(url))
+            case .ollama:
+                output = try await callOllama(text: userText, prompt: systemPrompt, url: url, model: model)
+            }
         }
         return LLMPromptBuilder.sanitizeOutput(output)
     }
@@ -329,11 +339,12 @@ class LLMService {
         text: String,
         prompt: String,
         apiKey: String,
-        model: String
+        model: String,
+        endpoint: String = "https://api.anthropic.com/v1/messages"
     ) async throws -> String {
         guard !apiKey.isEmpty else { throw LLMServiceError.invalidConfiguration }
         let modelName = model.isEmpty ? "claude-3-haiku-20240307" : model
-        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
+        guard let url = URL(string: endpoint) else {
             throw LLMServiceError.invalidConfiguration
         }
 

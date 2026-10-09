@@ -463,6 +463,40 @@ final class LLMServiceTests: XCTestCase {
         XCTAssertNil(json["model"])
     }
 
+    /// Custom 使用 Anthropic 格式 → 送到自訂 URL,並帶 x-api-key 標頭
+    func test_custom_anthropicFormatUsesCustomURL() async throws {
+        let mock = self.makeMock(data: anthropicSuccessBody(text: "修正後"), statusCode: 200)
+        let service = LLMService(networkProvider: mock)
+
+        let result = try await service.correctText(
+            text: "hi", prompt: "p", provider: .custom, apiKey: "k",
+            url: "https://proxy.example.com/v1/messages", model: "claude-x", apiFormat: .anthropic
+        )
+
+        XCTAssertEqual(result, "修正後")
+        let request = try XCTUnwrap(mock.requestsReceived.first)
+        XCTAssertEqual(request.url?.absoluteString, "https://proxy.example.com/v1/messages")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "k")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    /// Custom 使用 Ollama 格式 → 原生 /api/chat 端點不被改寫
+    func test_custom_ollamaFormatUsesNativeEndpoint() async throws {
+        let mock = self.makeMock(data: openAISuccessBody(text: "ok"), statusCode: 200)
+        let service = LLMService(networkProvider: mock)
+
+        _ = try await service.correctText(
+            text: "hi", prompt: "p", provider: .custom, apiKey: "",
+            url: "http://nas.local:11434/api/chat", model: "gemma", apiFormat: .ollama
+        )
+
+        let request = try XCTUnwrap(mock.requestsReceived.first)
+        XCTAssertEqual(request.url?.absoluteString, "http://nas.local:11434/api/chat")
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["stream"] as? Bool, false)
+    }
+
     // MARK: - 網路錯誤
 
     /// 底層拋出 Error 應被包成 networkError

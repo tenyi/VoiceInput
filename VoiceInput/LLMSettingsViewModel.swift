@@ -38,6 +38,23 @@ enum LLMProvider: String, CaseIterable, Codable {
     }
 }
 
+/// 自訂 Provider 使用的 API 協定格式
+enum CustomAPIFormat: String, CaseIterable, Codable {
+    case openAICompatible = "OpenAI"
+    case anthropic = "Anthropic"
+    case ollama = "Ollama"
+
+    /// 顯示名稱
+    var displayName: String {
+        switch self {
+        case .openAICompatible:
+            return String(localized: "llm.api.format.openAICompatible")
+        case .anthropic, .ollama:
+            return rawValue
+        }
+    }
+}
+
 /// 自訂 LLM 提供者結構
 struct CustomLLMProvider: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
@@ -45,6 +62,27 @@ struct CustomLLMProvider: Identifiable, Codable, Equatable {
     var url: String
     var model: String
     var prompt: String
+    var apiFormat: CustomAPIFormat = .openAICompatible
+
+    init(id: UUID = UUID(), name: String, url: String, model: String, prompt: String, apiFormat: CustomAPIFormat = .openAICompatible) {
+        self.id = id
+        self.name = name
+        self.url = url
+        self.model = model
+        self.prompt = prompt
+        self.apiFormat = apiFormat
+    }
+
+    /// 舊版資料沒有 apiFormat 欄位，解碼時預設為 OpenAI 相容格式
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        url = try container.decode(String.self, forKey: .url)
+        model = try container.decode(String.self, forKey: .model)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        apiFormat = try container.decodeIfPresent(CustomAPIFormat.self, forKey: .apiFormat) ?? .openAICompatible
+    }
 
     /// 顯示名稱
     var displayName: String { name }
@@ -449,11 +487,13 @@ final class LLMSettingsViewModel: ObservableObject {
         let resolvedAPIKey = apiKey  // API key 不需要修改，使用 let
         var resolvedURL = url
         var resolvedModel = model
+        var resolvedAPIFormat = CustomAPIFormat.openAICompatible
 
         if let custom = selectedCustomProvider {
             resolvedProvider = .custom
             resolvedURL = custom.url
             resolvedModel = custom.model
+            resolvedAPIFormat = custom.apiFormat
             // 若自訂 Provider 設定了專屬提示詞，優先採用
             let customPrompt = custom.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             if !customPrompt.isEmpty {
@@ -466,7 +506,8 @@ final class LLMSettingsViewModel: ObservableObject {
             provider: resolvedProvider,
             apiKey: resolvedAPIKey,
             url: resolvedURL,
-            model: resolvedModel
+            model: resolvedModel,
+            apiFormat: resolvedAPIFormat
         )
     }
 }
@@ -478,4 +519,6 @@ struct EffectiveLLMConfiguration {
     let apiKey: String
     let url: String
     let model: String
+    /// 僅在 provider 為 .custom 時使用
+    let apiFormat: CustomAPIFormat
 }

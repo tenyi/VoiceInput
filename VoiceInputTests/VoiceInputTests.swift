@@ -51,6 +51,19 @@ struct VoiceInputTests {
     }
 
     @Test
+    func customLLMProvider_legacyDataDecodesAsOpenAICompatible() throws {
+        let legacyJSON = """
+        [{"id":"\(UUID().uuidString)","name":"Old","url":"https://a.example.com","model":"m","prompt":""}]
+        """
+        let providers = try JSONDecoder().decode([CustomLLMProvider].self, from: Data(legacyJSON.utf8))
+        #expect(providers.first?.apiFormat == .openAICompatible)
+
+        let anthropic = CustomLLMProvider(name: "A", url: "u", model: "m", prompt: "", apiFormat: .anthropic)
+        let roundTrip = try JSONDecoder().decode(CustomLLMProvider.self, from: JSONEncoder().encode(anthropic))
+        #expect(roundTrip == anthropic)
+    }
+
+    @Test
     @MainActor
     func effectiveLLMConfig_customProviderWithEmptyPromptFallsBackToBuiltInOrDefaultPrompt() async throws {
         let custom = CustomLLMProvider(

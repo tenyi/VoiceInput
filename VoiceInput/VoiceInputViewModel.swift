@@ -538,7 +538,8 @@ class VoiceInputViewModel: ObservableObject {
                     provider: config.provider,
                     apiKey: config.apiKey,
                     url: config.url,
-                    model: config.model
+                    model: config.model,
+                    apiFormat: config.apiFormat
                 )
                 
                 await MainActor.run { [weak self] in

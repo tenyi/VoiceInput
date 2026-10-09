@@ -84,6 +84,8 @@
 "llm.api.modelName" = "模型名稱";
 "llm.api.apiKey" = "API Key";
 "llm.api.apiUrl" = "API URL";
+"llm.api.format" = "API 格式";
+"llm.api.format.openAICompatible" = "OpenAI 相容";
 "llm.api.apiKeyOptional" = "API Key (可選)";
 "llm.provider.delete" = "刪除此 Provider";
 

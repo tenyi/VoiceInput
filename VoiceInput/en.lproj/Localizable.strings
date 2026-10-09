@@ -84,6 +84,8 @@
 "llm.api.modelName" = "Model Name";
 "llm.api.apiKey" = "API Key";
 "llm.api.apiUrl" = "API URL";
+"llm.api.format" = "API Format";
+"llm.api.format.openAICompatible" = "OpenAI Compatible";
 "llm.api.apiKeyOptional" = "API Key (Optional)";
 "llm.provider.delete" = "Delete This Provider";
 
