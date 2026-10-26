@@ -96,7 +96,7 @@ final class LLMServiceTests: XCTestCase {
         let service = LLMService(networkProvider: MockNetworkProvider())
         await assertThrowsLLMError(
             try await service.correctText(
-                text: "hi", prompt: "p", provider: .anthropic, apiKey: "", url: "", model: "claude-3-haiku-20240307"
+                text: "hi", prompt: "p", provider: .anthropic, apiKey: "", url: "", model: "claude-haiku-5-5"
             ),
             .invalidConfiguration
         )
@@ -272,7 +272,7 @@ final class LLMServiceTests: XCTestCase {
 
         let result = try await service.correctText(
             text: "原文", prompt: "請修正", provider: .anthropic,
-            apiKey: "sk-ant", url: "", model: "claude-3-haiku-20240307"
+            apiKey: "sk-ant", url: "", model: "claude-haiku-5-5"
         )
 
         XCTAssertEqual(result, "修正後")
@@ -308,8 +308,59 @@ final class LLMServiceTests: XCTestCase {
 
         let body = try XCTUnwrap(mock.requestsReceived.first?.httpBody)
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
-        XCTAssertEqual(json["model"] as? String, "claude-3-haiku-20240307")
-        XCTAssertEqual(json["max_tokens"] as? Int, 1024)
+        XCTAssertEqual(json["model"] as? String, "claude-haiku-5-5")
+        XCTAssertEqual(json["max_tokens"] as? Int, 16000)
+    }
+
+    /// Anthropic 回應先有 thinking 區塊時,應取第一個 text 區塊
+    func test_anthropic_skipsThinkingBlock() async throws {
+        let json: [String: Any] = [
+            "content": [
+                ["type": "thinking", "thinking": ""],
+                ["type": "text", "text": "修正後"]
+            ],
+            "stop_reason": "end_turn"
+        ]
+        let mock = self.makeMock(data: try JSONSerialization.data(withJSONObject: json), statusCode: 200)
+        let service = LLMService(networkProvider: mock)
+
+        let result = try await service.correctText(
+            text: "原文", prompt: "p", provider: .anthropic, apiKey: "sk-ant", url: "", model: ""
+        )
+        XCTAssertEqual(result, "修正後")
+    }
+
+    /// Anthropic stop_reason == max_tokens → outputTruncated
+    func test_anthropic_maxTokensThrowsOutputTruncated() async throws {
+        let json: [String: Any] = [
+            "content": [["type": "text", "text": "截斷的"]],
+            "stop_reason": "max_tokens"
+        ]
+        let mock = self.makeMock(data: try JSONSerialization.data(withJSONObject: json), statusCode: 200)
+        let service = LLMService(networkProvider: mock)
+
+        await assertThrowsLLMError(
+            try await service.correctText(
+                text: "原文", prompt: "p", provider: .anthropic, apiKey: "sk-ant", url: "", model: ""
+            ),
+            .outputTruncated
+        )
+    }
+
+    /// OpenAI finish_reason == length → outputTruncated
+    func test_openAI_lengthFinishReasonThrowsOutputTruncated() async throws {
+        let json: [String: Any] = [
+            "choices": [["message": ["content": "截斷的"], "finish_reason": "length"]]
+        ]
+        let mock = self.makeMock(data: try JSONSerialization.data(withJSONObject: json), statusCode: 200)
+        let service = LLMService(networkProvider: mock)
+
+        await assertThrowsLLMError(
+            try await service.correctText(
+                text: "原文", prompt: "p", provider: .openAI, apiKey: "sk", url: "", model: ""
+            ),
+            .outputTruncated
+        )
     }
 
     /// Anthropic 格式錯誤 → invalidResponse
@@ -366,6 +417,11 @@ final class LLMServiceTests: XCTestCase {
 
         let request = try XCTUnwrap(mock.requestsReceived.first)
         XCTAssertEqual(request.url?.absoluteString, "http://localhost:11434/api/chat")
+        // 原生端點的 temperature 須放在 options 內
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(json["temperature"])
+        XCTAssertEqual((json["options"] as? [String: Any])?["temperature"] as? Double, 0.3)
     }
 
     /// Ollama 私有網段自動補 http
@@ -616,6 +672,7 @@ enum LLMErrorCase {
     case apiError
     case noContent
     case httpError
+    case outputTruncated
 
     func matches(_ error: LLMServiceError) -> Bool {
         switch (self, error) {
@@ -624,7 +681,8 @@ enum LLMErrorCase {
              (.networkError, .networkError),
              (.apiError, .apiError),
              (.noContent, .noContent),
-             (.httpError, .httpError):
+             (.httpError, .httpError),
+             (.outputTruncated, .outputTruncated):
             return true
         default:
             return false

@@ -60,6 +60,10 @@ class HotkeyManager: HotkeyManagerProtocol {
     /// Event tap
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    /// Event tap 建立失敗（權限尚未授予）時的重試計時器
+    private var retryTimer: Timer?
+    /// Event tap 建立失敗後的重試間隔（秒）
+    private static let tapRetryInterval: TimeInterval = 3.0
 
     private init() {}
 
@@ -122,6 +126,12 @@ class HotkeyManager: HotkeyManagerProtocol {
             // 嘗試取得更詳細的錯誤資訊
             let isTrusted = AXIsProcessTrusted()
             logger.error("無法創建 CGEventTap，請確認已授予輔助功能權限。AXIsProcessTrusted = \(isTrusted)")
+            // 使用者授權後不需重啟 App：定期重試直到建立成功
+            retryTimer = Timer.scheduledTimer(withTimeInterval: Self.tapRetryInterval, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.startMonitoring()
+                }
+            }
             return
         }
 
@@ -201,6 +211,8 @@ class HotkeyManager: HotkeyManagerProtocol {
 
     /// 停止監聽快捷鍵
     func stopMonitoring() {
+        retryTimer?.invalidate()
+        retryTimer = nil
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }

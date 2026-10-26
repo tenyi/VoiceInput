@@ -4,7 +4,7 @@ import AVFoundation
 protocol AudioEngineProtocol: AnyObject {
     /// 是否正在錄音
     var isRecording: Bool { get set }
-    /// 是否已取得麥克風與語音識別權限
+    /// 是否已取得麥克風權限
     var permissionGranted: Bool { get set }
     /// 可用的音訊輸入設備列表
     var availableInputDevices: [AudioInputDevice] { get set }

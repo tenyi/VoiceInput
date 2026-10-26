@@ -1,7 +1,7 @@
 import AVFoundation
 import Speech
 import Combine
-import AVFAudio
+@preconcurrency import AVFAudio
 import os
 import CoreAudio
 
@@ -36,7 +36,7 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
     static let shared = AudioEngine()
     
     /// 日誌記錄器
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "AudioEngine")
+    nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "AudioEngine")
 
     /// AVCaptureSession 實例,用於處理音訊流
     /// B1.2.5:型別改為 protocol,以支援測試注入 MockAVCaptureSession
@@ -47,7 +47,7 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
 
     /// 是否正在錄音
     @Published var isRecording = false
-    /// 是否已取得麥克風與語音識別權限
+    /// 是否已取得麥克風權限（錄音的唯一必要權限）
     @Published var permissionGranted = false
 
     /// 可用的音訊輸入設備列表
@@ -64,9 +64,25 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
 
     /// 音訊回調
     /// B1.3:從 private 改為 internal,以便測試驗證 H-3 修復(失敗路徑不留下 callback)
-    var bufferCallback: ((AVAudioPCMBuffer) -> Void)?
+    /// 主執行緒寫入、截取佇列讀取,以 callbackLock 保護
+    var bufferCallback: ((AVAudioPCMBuffer) -> Void)? {
+        get {
+            callbackLock.lock()
+            defer { callbackLock.unlock() }
+            return _bufferCallback
+        }
+        set {
+            callbackLock.lock()
+            _bufferCallback = newValue
+            callbackLock.unlock()
+        }
+    }
+    nonisolated(unsafe) private var _bufferCallback: ((AVAudioPCMBuffer) -> Void)?
+    nonisolated private let callbackLock = NSLock()
     /// 截取佇列
     private let captureQueue = DispatchQueue(label: "com.voiceinput.audiocapture")
+    /// Session 控制佇列:stopRunning() 為阻塞呼叫,不在主執行緒執行
+    let sessionQueue = DispatchQueue(label: "com.voiceinput.audiosession")
 
     /// Capture session 工廠;測試可注入 mock,生產環境使用 AVCaptureSession
     /// B1.2.5:把 `AVCaptureSession()` 直接建構抽成注入點,讓 startRecording 可被單元測試
@@ -102,9 +118,13 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
     func checkPermission(completion: ((Bool) -> Void)? = nil) {
         // 使用 PermissionManager 請求所有權限
         // 這會先檢查狀態，尚未決定時彈出系統對話框，已拒絕時顯示提示視窗
-        permissionManager.requestAllPermissionsIfNeeded { [weak self] allGranted in
-            self?.permissionGranted = allGranted
-            completion?(allGranted)
+        // 仍一次請求所有權限（引導使用者完成設定），但錄音只取決於麥克風：
+        // 語音辨識權限只有 Apple 引擎需要，輔助功能權限只有插入文字時需要（插入前另行檢查）
+        permissionManager.requestAllPermissionsIfNeeded { [weak self] _ in
+            guard let self else { return }
+            let granted = self.permissionManager.checkMicrophoneStatus() == .authorized
+            self.permissionGranted = granted
+            completion?(granted)
         }
     }
 
@@ -169,16 +189,10 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
             devices.append(audioDevice)
         }
 
+        // 已斷開裝置的選擇由 VoiceInputViewModel.reconcileSelectedInputDevice() 統一校正,
+        // 避免 AudioEngine 與 ViewModel 的選擇不同步
         DispatchQueue.main.async {
             self.availableInputDevices = devices
-
-            // 如果當前選擇的設備已斷開，重置為系統預設
-            if let selectedID = self.selectedDeviceID {
-                let deviceExists = discoverySession.devices.contains { $0.uniqueID == selectedID }
-                if !deviceExists {
-                    self.selectedDeviceID = nil
-                }
-            }
         }
     }
 
@@ -268,14 +282,16 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
     /// 停止錄音
     /// Stops recording.
     func stopRecording() {
-        captureSession?.stopRunning()
+        // 同步清除 callback,避免延遲清除時誤刪下一次錄音的 callback
+        bufferCallback = nil
+        if let session = captureSession {
+            sessionQueue.async {
+                session.stopRunning()
+            }
+        }
         captureSession = nil
         audioDataOutput = nil
-        
-        captureQueue.async { [weak self] in
-            self?.bufferCallback = nil
-        }
-        
+
         DispatchQueue.main.async {
             self.isRecording = false
         }
@@ -283,8 +299,13 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
 
     // MARK: - AVCaptureAudioDataOutputSampleBufferDelegate
 
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard let callback = bufferCallback else { return }
+    /// 於截取佇列觸發;callback 一律派送回主執行緒執行,
+    /// 因為下游(ViewModel / TranscriptionManager / SFSpeech 服務)皆為 MainActor 隔離
+    nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        callbackLock.lock()
+        let currentCallback = _bufferCallback
+        callbackLock.unlock()
+        guard let callback = currentCallback else { return }
 
         // 解析 CMSampleBuffer 為 AVAudioPCMBuffer
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
@@ -309,7 +330,9 @@ class AudioEngine: NSObject, ObservableObject, AudioEngineProtocol, AVCaptureAud
         )
 
         if status == noErr {
-            callback(pcmBuffer)
+            DispatchQueue.main.async {
+                callback(pcmBuffer)
+            }
         } else {
             logger.error("複製 PCM 資料失敗，錯誤碼: \(status)")
         }

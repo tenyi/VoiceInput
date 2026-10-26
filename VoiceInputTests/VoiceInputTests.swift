@@ -320,6 +320,69 @@ struct VoiceInputTests {
         #expect(mockAudio.isRecording == false)
     }
 
+    /// 建立使用 mock 依賴的 ViewModel(快捷鍵流程測試用)
+    @MainActor
+    private func makeHotkeyFlowViewModel(
+        hotkey: MockHotkeyManager,
+        audio: MockAudioEngine
+    ) throws -> VoiceInputViewModel {
+        let suiteName = "TestDefaults-\(UUID().uuidString)"
+        guard let mockDefaults = UserDefaults(suiteName: suiteName) else {
+             throw NSError(domain: "VoiceInputTests", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create mock UserDefaults"])
+        }
+        mockDefaults.removePersistentDomain(forName: suiteName)
+        let viewModel = VoiceInputViewModel(
+            hotkeyManager: hotkey,
+            audioEngine: audio,
+            inputSimulator: MockInputSimulator(),
+            userDefaults: mockDefaults,
+            clock: TestClock()
+        )
+        viewModel.transcriptionManager.serviceFactory = { _, _, _ in MockTranscriptionService() }
+        return viewModel
+    }
+
+    /// 錄音啟動失敗後,快捷鍵仍能再次開始錄音(不得卡在錄音中狀態)
+    @Test
+    @MainActor
+    func viewModel_startRecordingFailure_hotkeyStillWorks() async throws {
+        let mockHotkey = MockHotkeyManager()
+        let mockAudio = MockAudioEngine()
+        mockAudio.startRecordingShouldThrow = true
+        let viewModel = try makeHotkeyFlowViewModel(hotkey: mockHotkey, audio: mockAudio)
+
+        mockHotkey.simulatePress()
+        await waitUntil { mockAudio.startRecordingCallback == nil && viewModel.appState == .idle }
+        mockHotkey.simulateRelease()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(viewModel.appState == .idle)
+
+        // 錄音裝置恢復後,下一次按下應能正常開始錄音
+        mockAudio.startRecordingShouldThrow = false
+        mockHotkey.simulatePress()
+        await waitUntil { viewModel.appState == .recording }
+        #expect(viewModel.appState == .recording)
+        #expect(mockAudio.isRecording == true)
+    }
+
+    /// 極短按壓(< 300ms)應取消錄音,而不是繼續錄音
+    @Test
+    @MainActor
+    func viewModel_shortPress_cancelsRecording() async throws {
+        let mockHotkey = MockHotkeyManager()
+        let mockAudio = MockAudioEngine()
+        let viewModel = try makeHotkeyFlowViewModel(hotkey: mockHotkey, audio: mockAudio)
+
+        mockHotkey.simulatePress()
+        await waitUntil { viewModel.appState == .recording }
+        #expect(viewModel.appState == .recording)
+
+        mockHotkey.simulateRelease()
+        await waitUntil { viewModel.appState == .idle }
+        #expect(viewModel.appState == .idle)
+        #expect(mockAudio.isRecording == false)
+    }
+
     /// 建立使用 mock 轉錄服務的 ViewModel,並完成一次「開始 → 停止」錄音
     @MainActor
     private func makeViewModelAndStopRecording(

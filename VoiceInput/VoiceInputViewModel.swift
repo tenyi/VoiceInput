@@ -1,11 +1,10 @@
 import Foundation
 import SwiftUI
 import Combine
+import AVFoundation
 import AppKit
 import os
 import UniformTypeIdentifiers
-
-// Removed LLMProvider enum and CustomLLMProvider struct as they are now in LLMSettingsViewModel.swift
 
 /// 應用程式狀態
 enum AppState {
@@ -31,7 +30,7 @@ enum AppStatusMessage {
 
 /// 時間間隔常數（秒）
 enum TimeConstants {
-    /// 防抖間距：錄音時間少於此值則忽略停止事件
+    /// 防抖間距：錄音時間少於此值視為誤觸並取消錄音
     static let debounceInterval: Double = 0.3
     /// 浮動視窗隱藏延遲：顯示最終結果後等待此時間才隱藏
     static let windowHideDelay: Double = 1.0
@@ -143,7 +142,6 @@ class VoiceInputViewModel: ObservableObject {
     var transcriptionManager = TranscriptionManager()
     
     /// Combine 訂閱
-    /// Combine 訂閱
     private var cancellables = Set<AnyCancellable>()
     /// 輸入模擬器 (依賴注入)
     private var inputSimulator: InputSimulatorProtocol
@@ -184,7 +182,7 @@ class VoiceInputViewModel: ObservableObject {
         modelManager: ModelManager? = nil,
         userDefaults: UserDefaults = .standard,
         clock: Clock = SystemClock(),
-        frontmostAppProvider: FrontmostAppProviding = WorkspaceFrontmostAppProvider()
+        frontmostAppProvider: FrontmostAppProviding? = nil
     ) {
         self.hotkeyManager = hotkeyManager
         self.audioEngine = audioEngine
@@ -194,7 +192,7 @@ class VoiceInputViewModel: ObservableObject {
         self.modelManager = modelManager ?? AppDelegate.sharedModelManager
         self.userDefaults = userDefaults
         self.clock = clock
-        self.frontmostAppProvider = frontmostAppProvider
+        self.frontmostAppProvider = frontmostAppProvider ?? WorkspaceFrontmostAppProvider()
         
         // Initialize properties from UserDefaults
         self.selectedLanguage = userDefaults.string(forKey: "selectedLanguage") ?? "zh-TW"
@@ -212,7 +210,18 @@ class VoiceInputViewModel: ObservableObject {
         setupHotkeys()
         refreshAudioDevices()
         setupTranscriptionManager()
+        setupDeviceObservers()
         preloadWhisperModelIfNeeded()
+    }
+
+    /// 裝置插拔時重新整理清單並校正選擇，讓 UI 與 AudioEngine 保持一致
+    private func setupDeviceObservers() {
+        let center = NotificationCenter.default
+        center.publisher(for: AVCaptureDevice.wasConnectedNotification)
+            .merge(with: center.publisher(for: AVCaptureDevice.wasDisconnectedNotification))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshAudioDevices() }
+            .store(in: &cancellables)
     }
 
     @MainActor
@@ -283,7 +292,7 @@ class VoiceInputViewModel: ObservableObject {
         }
     }
 
-    /// 設定快捷鍵監聽（T4-3：摿 HotkeyManager 事件接入 HotkeyInteractionController）
+    /// 設定快捷鍵監聽（T4-3：將 HotkeyManager 事件接入 HotkeyInteractionController）
     private func setupHotkeys() {
         if ProcessInfo.processInfo.isRunningForPreview {
             return
@@ -354,7 +363,8 @@ class VoiceInputViewModel: ObservableObject {
 
         // 檢查權限
         guard audioEngine.permissionGranted else {
-            permissionManager.requestAllPermissionsIfNeeded { [weak self] granted in
+            // 透過 audioEngine 重新檢查，讓 AudioEngine 自身的 permissionGranted 一併更新
+            audioEngine.checkPermission { [weak self] granted in
                 // H-9 修復:completion 不保證在主執行緒,包裝為 @MainActor Task
                 Task { @MainActor [weak self] in
                     if granted {
@@ -377,14 +387,25 @@ class VoiceInputViewModel: ObservableObject {
             return
         }
 
-        // 防抖：錄音時間少於 300ms 則忽略放開事件
+        // 防抖：錄音時間少於 300ms 視為誤觸，直接取消錄音
         if let startTime = recordingStartTime,
            Date().timeIntervalSince(startTime) < TimeConstants.debounceInterval {
-            logger.warning("錄音時間過短（< 300ms），忽略停止請求")
+            logger.warning("錄音時間過短（< 300ms），取消錄音")
+            cancelRecording()
             return
         }
 
         stopRecordingAndTranscribe()
+    }
+
+    /// 取消錄音：停止擷取並丟棄結果，不進入轉寫流程
+    private func cancelRecording() {
+        audioEngine.stopRecording()
+        hotkeyController.isRecording = false
+        transcriptionManager.stopTranscription()
+        WindowManager.shared.hideFloatingWindow()
+        appState = .idle
+        transcribedText = AppStatusMessage.waitingForInput
     }
 
     /// 使用 Whisper 時預先在背景載入模型,避免第一次錄音才載入
@@ -437,22 +458,24 @@ class VoiceInputViewModel: ObservableObject {
         // 記錄錄音開始時間（用於防抖）
         recordingStartTime = Date()
 
-        // 錄音啟動成功，通知 Controller
         appState = .recording
-        hotkeyController.isRecording = true
 
         do {
             try audioEngine.startRecording { [weak self] buffer in
                 self?.transcriptionManager.processAudioBuffer(buffer)
             }
+            // 錄音啟動成功後才通知 Controller，避免失敗時 Controller 停在錄音中狀態
+            hotkeyController.isRecording = true
         } catch {
             // 錄音啟動失敗，恢復狀態
+            transcriptionManager.stopTranscription()
             appState = .idle
             transcribedText = "\(AppStatusMessage.recordingFailedPrefix)\(error.localizedDescription)"
             // 延遲 2 秒後再隱藏視窗，讓使用者能看清錯誤
             Task { @MainActor [weak self] in
                 await self?.clock.sleep(for: .seconds(2.0))
-                guard let self else { return }
+                // 期間若已開始新的錄音，不要關掉新的視窗
+                guard let self, self.appState == .idle else { return }
                 WindowManager.shared.hideFloatingWindow()
                 self.transcribedText = AppStatusMessage.waitingForInput
             }

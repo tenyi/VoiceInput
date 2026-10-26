@@ -99,4 +99,22 @@ final class DictionaryManagerTests: XCTestCase {
         let result = manager.replaceText("I like apple pie")
         XCTAssertEqual(result, "I like dessert")
     }
+
+    /// 英文詞條不應比對到單字內部
+    func testLatinEntryDoesNotMatchInsideWord() {
+        manager.addItem(original: "ai", replacement: "AI")
+        XCTAssertEqual(manager.replaceText("he said ai"), "he said AI")
+    }
+
+    /// 中英混排時英文詞條仍能比對(中文字不視為邊界阻擋)
+    func testLatinEntryMatchesNextToCJK() {
+        manager.addItem(original: "ai", replacement: "AI")
+        XCTAssertEqual(manager.replaceText("用ai寫程式"), "用AI寫程式")
+    }
+
+    /// 中文詞條維持子字串比對
+    func testCJKEntryMatchesSubstring() {
+        manager.addItem(original: "語音書入", replacement: "語音輸入")
+        XCTAssertEqual(manager.replaceText("我用語音書入法"), "我用語音輸入法")
+    }
 }

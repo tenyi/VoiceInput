@@ -159,7 +159,7 @@ class DictionaryManager: ObservableObject {
         }
         // NSRegularExpression 初始化失敗時(罕見),fallback 用簡單字串比對
         let regex: NSRegularExpression
-        if let compiled = try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: item.original), options: options) {
+        if let compiled = try? NSRegularExpression(pattern: Self.pattern(for: item.original), options: options) {
             regex = compiled
         } else {
             // 罕見情況:建立一個永不匹配的 regex
@@ -167,6 +167,19 @@ class DictionaryManager: ObservableObject {
         }
         regexCache.set(regex, for: key)
         return regex
+    }
+
+    /// 以英數字開頭/結尾的詞條加上字詞邊界，避免比對到單字內部（例如 "ai" 比對到 "said"）
+    /// 只排除前後緊鄰的 ASCII 英數字；不用 \b，因為 ICU 把中文字視為單字字元，會讓「用AI寫」比對失敗
+    private static func pattern(for original: String) -> String {
+        let isWordChar: (Character?) -> Bool = { char in
+            guard let char else { return false }
+            return char.isASCII && (char.isLetter || char.isNumber)
+        }
+        var pattern = NSRegularExpression.escapedPattern(for: original)
+        if isWordChar(original.first) { pattern = "(?<![A-Za-z0-9])" + pattern }
+        if isWordChar(original.last) { pattern += "(?![A-Za-z0-9])" }
+        return pattern
     }
 
     private func saveItems() {

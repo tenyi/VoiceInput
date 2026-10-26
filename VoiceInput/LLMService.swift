@@ -15,6 +15,7 @@ enum LLMServiceError: LocalizedError {
     case apiError(String)          // API 回傳錯誤
     case noContent                 // 無回應內容
     case httpError(statusCode: Int, body: String?)  // C-4 修復:HTTP 狀態碼錯誤
+    case outputTruncated           // 輸出達到 token 上限被截斷
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +29,8 @@ enum LLMServiceError: LocalizedError {
             return "API 錯誤: \(message)"
         case .noContent:
             return "LLM 無回應內容"
+        case .outputTruncated:
+            return "LLM 輸出過長被截斷，已保留原文"
         case .httpError(let statusCode, let body):
             // 友善的狀態碼說明,協助使用者排查 API Key / 額度 / 伺服器問題
             let prefix: String
@@ -54,6 +57,8 @@ class LLMService {
 
     /// M-1 修復:Anthropic API 版本號抽為常數,避免 magic string 散落
     private static let anthropicAPIVersion = "2023-06-01"
+    /// Anthropic 回應 token 上限;需涵蓋 thinking 與長段口述的整理結果
+    private static let anthropicMaxTokens = 16000
 
     private let networkProvider: NetworkProviderProtocol
 
@@ -223,6 +228,15 @@ class LLMService {
                 throw LLMServiceError.invalidResponse
             }
             // 1. OpenAI 格式: choices[0].message.content
+            // 輸出被截斷時不採用,避免插入不完整的文字
+            // OpenAI: finish_reason == "length";Ollama 原生: done_reason == "length"
+            if let choices = json["choices"] as? [[String: Any]],
+               choices.first?["finish_reason"] as? String == "length" {
+                throw LLMServiceError.outputTruncated
+            }
+            if json["done_reason"] as? String == "length" {
+                throw LLMServiceError.outputTruncated
+            }
             if let choices = json["choices"] as? [[String: Any]],
                let firstChoice = choices.first {
                 if let message = firstChoice["message"] as? [String: Any],
@@ -262,9 +276,13 @@ class LLMService {
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw LLMServiceError.invalidResponse
             }
+            if json["stop_reason"] as? String == "max_tokens" {
+                throw LLMServiceError.outputTruncated
+            }
+            // content 可能先出現 thinking 區塊,取第一個 text 區塊
             if let content = json["content"] as? [[String: Any]],
-               let firstContent = content.first,
-               let text = firstContent["text"] as? String {
+               let textContent = content.first(where: { $0["type"] as? String == "text" }),
+               let text = textContent["text"] as? String {
                 return stripThinkTags(text)
             } else if let error = json["error"] as? [String: Any],
                       let message = error["message"] as? String {
@@ -343,7 +361,7 @@ class LLMService {
         endpoint: String = "https://api.anthropic.com/v1/messages"
     ) async throws -> String {
         guard !apiKey.isEmpty else { throw LLMServiceError.invalidConfiguration }
-        let modelName = model.isEmpty ? "claude-3-haiku-20240307" : model
+        let modelName = model.isEmpty ? LLMProvider.anthropic.defaultModel : model
         guard let url = URL(string: endpoint) else {
             throw LLMServiceError.invalidConfiguration
         }
@@ -357,7 +375,7 @@ class LLMService {
 
         let body: [String: Any] = [
             "model": modelName,
-            "max_tokens": 1024,
+            "max_tokens": Self.anthropicMaxTokens,
             "system": prompt,
             "messages": [
                 ["role": "user", "content": text]
@@ -402,15 +420,20 @@ class LLMService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         // 原生 Ollama 與 OpenAI 相容層均支援 messages 陣列，加入 stream: false 關閉串流
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": modelName,
             "messages": [
                 ["role": "system", "content": prompt],
                 ["role": "user", "content": text]
             ],
-            "stream": false,
-            "temperature": 0.3
+            "stream": false
         ]
+        // 原生 /api/chat 的取樣參數須放在 options 內,放在最上層會被忽略
+        if isNativeOllamaAPI {
+            body["options"] = ["temperature": 0.3]
+        } else {
+            body["temperature"] = 0.3
+        }
 
         // 如果序列化失敗，向上拋出明確錯誤而非發送空 body
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

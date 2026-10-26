@@ -233,7 +233,13 @@ final class WhisperTranscriptionService: TranscriptionServiceProtocol {
             // C-2 修復:即使 isRunning 已被 stop() 設為 false,仍 append buffer。
             // 因為這些 buffer 是在 stop() 之前就已進入管線,丟掉會造成資料缺漏。
             // stop() 會等待 inFlightProcessingCount 歸零再快照。
-            self.accumulatedBuffer.append(contentsOf: converted)
+            // 超過 maxBufferCapacity（5 分鐘）的音訊不再累積，避免記憶體無限成長
+            let remaining = self.maxBufferCapacity - self.accumulatedBuffer.count
+            guard remaining > 0 else { return }
+            self.accumulatedBuffer.append(contentsOf: converted.prefix(remaining))
+            if converted.count > remaining {
+                self.logger.warning("錄音已達 5 分鐘上限，之後的音訊不納入轉寫")
+            }
 
             // 只有仍在錄音時才觸發部分轉寫(避免 stop 後仍跑昂貴的 whisper)
             guard self.isRunning else { return }

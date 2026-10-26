@@ -10,7 +10,11 @@ class InputSimulator: InputSimulatorProtocol {
 
     /// 剪貼簿還原延遲（秒），確保目標應用程式有足夠時間讀取 Cmd+V
     /// 此值允許 UI 事件循環處理完貼上動作
-    private static let clipboardRestoreDelay: Double = 0.2
+    /// Electron 等較慢的 App 讀取剪貼簿需要較長時間
+    private static let clipboardRestoreDelay: Double = 0.5
+
+    /// nspasteboard.org 慣例：標記為暫時內容，剪貼簿管理工具不會記錄
+    static let transientPasteboardType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
 
     /// 權限管理員
     private let permissionManager = PermissionManager.shared
@@ -77,6 +81,7 @@ class InputSimulator: InputSimulatorProtocol {
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        pasteboard.setString("", forType: Self.transientPasteboardType)
 
         let initialChangeCount = pasteboard.changeCount
 

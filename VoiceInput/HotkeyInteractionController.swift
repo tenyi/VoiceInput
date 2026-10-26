@@ -101,7 +101,7 @@ class HotkeyInteractionController {
                 // 錄音中 → 停止並轉寫
                 isTransitioning = true
                 triggerStop()
-                scheduleTransitionEnd(after: 0.3)
+                scheduleTransitionEnd(after: toggleTransitionDebounce)
             }
         }
     }

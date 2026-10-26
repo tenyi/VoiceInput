@@ -80,8 +80,10 @@ struct AudioEngineTests {
 
         // Act
         engine.stopRecording()
+        // stopRunning 在 sessionQueue 非同步執行,等待佇列清空
+        engine.sessionQueue.sync {}
 
-        // Assert: 同步可驗證的部分
+        // Assert
         // 1. session 確實被通知停止
         #expect(mockSession.stopRunningCallCount == 1)
         // 2. captureSession 屬性已清空(避免下次 startRecording 誤用舊 session)

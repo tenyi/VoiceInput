@@ -29,7 +29,7 @@ enum LLMProvider: String, CaseIterable, Codable {
         case .openAI:
             return "gpt-4o-mini"
         case .anthropic:
-            return "claude-3-haiku-20240307"
+            return "claude-haiku-5-5"
         case .ollama:
             return "llama3"
         case .custom:
@@ -210,9 +210,6 @@ final class LLMSettingsViewModel: ObservableObject {
         // 根據剛才手動抓到的真實值來進行配置（這時候 selectedCustomProviderId 哪怕還沒 didSet，我們也已經掌握到其確實的值）
         loadBuiltInProviderSettings(for: effectiveProvider)
         loadAPIKey(for: effectiveProvider, customId: realCustomId)
-
-        // 遷移防錯
-        loadLegacyLLMAPIKeyIfNeeded()
     }
 
     private func setupAPIKeySaving() {
@@ -375,19 +372,6 @@ final class LLMSettingsViewModel: ObservableObject {
         return "llmAPIKey.\(provider.rawValue)"
     }
 
-    private func loadLegacyLLMAPIKeyIfNeeded() {
-        do {
-            if let savedKey = try keychain.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), !savedKey.isEmpty {
-                isInternalUpdating = true
-                llmAPIKey = savedKey
-                isInternalUpdating = false
-                return
-            }
-        } catch {
-            logger.error("讀取舊版 API Key 失敗: \(error.localizedDescription)")
-        }
-    }
-
     private func saveAPIKey(key: String, provider: LLMProvider, customId: String?) {
         let account = providerAPIKeyAccount(for: provider, customId: customId)
         do {
@@ -417,7 +401,10 @@ final class LLMSettingsViewModel: ObservableObject {
             } else if let legacyKey = try keychain.read(service: "com.tenyi.voiceinput", account: "llmAPIKey"), provider == .openAI {
                 llmAPIKey = legacyKey
                 saveAPIKey(key: legacyKey, provider: provider, customId: customId)
-                keychainErrorMessage = nil
+                // 遷移成功後移除舊版項目，避免之後重複遷移
+                if keychainErrorMessage == nil {
+                    try? keychain.delete(service: "com.tenyi.voiceinput", account: "llmAPIKey")
+                }
             } else {
                 llmAPIKey = ""
                 keychainErrorMessage = nil

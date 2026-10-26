@@ -22,9 +22,11 @@ struct InputSimulatorTests {
         simulator.pasteText("hello world")
 
         #expect(mockPasteboard.clearContentsCallCount == 1)
-        #expect(mockPasteboard.setStringCalls.count == 1)
+        #expect(mockPasteboard.setStringCalls.count == 2)
         #expect(mockPasteboard.setStringCalls[0].string == "hello world")
         #expect(mockPasteboard.setStringCalls[0].type == .string)
+        // 標記為暫時內容,剪貼簿管理工具不會記錄
+        #expect(mockPasteboard.setStringCalls[1].type == InputSimulator.transientPasteboardType)
     }
 
     /// restoreClipboardIfNeeded:空快照時不呼叫 writeObjects
@@ -94,7 +96,7 @@ struct InputSimulatorTests {
 
         simulator.insertText("你好世界")
 
-        #expect(mockPasteboard.setStringCalls.count == 1)
+        #expect(mockPasteboard.setStringCalls.count == 2)
         #expect(mockPasteboard.setStringCalls[0].string == "你好世界")
     }
 
