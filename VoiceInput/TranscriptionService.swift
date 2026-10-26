@@ -53,12 +53,12 @@ final class SFSpeechTranscriptionService: TranscriptionServiceProtocol {
     /// stop() 傳入的完成回呼，於資源清理時呼叫
     private var stopCompletion: (() -> Void)?
     /// 提示辨識器優先辨識的專有名詞
-    private let contextualStringsProvider: () -> [String]
+    private let contextualStringsProvider: @MainActor () -> [String]
 
     init(
         speechRecognizerFactory: @escaping (Locale) -> SFSpeechRecognizer? = { SFSpeechRecognizer(locale: $0) },
         finalizeTimeout: Double = 1.5,
-        contextualStringsProvider: @escaping () -> [String] = { DictionaryManager.shared.vocabularyTerms() }
+        contextualStringsProvider: @escaping @MainActor () -> [String] = { DictionaryManager.shared.vocabularyTerms() }
     ) {
         self.speechRecognizerFactory = speechRecognizerFactory
         self.finalizeTimeout = finalizeTimeout

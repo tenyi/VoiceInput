@@ -21,65 +21,88 @@ final class KeychainHelperTests: XCTestCase {
 
     override func tearDown() {
         // 清理:即使測試失敗也嘗試刪除測試用 keychain 項目
-        try? keychain.delete(service: testService, account: testAccount)
-        try? keychain.delete(service: testService, account: "other-account")
+        let service = testService
+        DispatchQueue.global(qos: .userInitiated).sync {
+            try? keychain.delete(service: service, account: testAccount)
+            try? keychain.delete(service: service, account: "other-account")
+        }
         super.tearDown()
     }
 
     // MARK: - Save / Read
 
-    func test_save_thenRead_returnsSavedValue() throws {
-        try keychain.save("secret-value", service: testService, account: testAccount)
-        let read = try keychain.read(service: testService, account: testAccount)
+    func test_save_thenRead_returnsSavedValue() async throws {
+        let read = try await performKeychainOperation { keychain, service, account in
+            try keychain.save("secret-value", service: service, account: account)
+            return try keychain.read(service: service, account: account)
+        }
         XCTAssertEqual(read, "secret-value")
     }
 
-    func test_save_overwriteExistingValue() throws {
-        try keychain.save("first", service: testService, account: testAccount)
-        try keychain.save("second", service: testService, account: testAccount)
-        let read = try keychain.read(service: testService, account: testAccount)
+    func test_save_overwriteExistingValue() async throws {
+        let read = try await performKeychainOperation { keychain, service, account in
+            try keychain.save("first", service: service, account: account)
+            try keychain.save("second", service: service, account: account)
+            return try keychain.read(service: service, account: account)
+        }
         XCTAssertEqual(read, "second")
     }
 
-    func test_read_nonExistentReturnsNil() throws {
-        let read = try keychain.read(service: testService, account: testAccount)
+    func test_read_nonExistentReturnsNil() async throws {
+        let read = try await performKeychainOperation { keychain, service, account in
+            try keychain.read(service: service, account: account)
+        }
         XCTAssertNil(read, "不存在的項目應回傳 nil,而不是拋出錯誤")
     }
 
-    func test_read_emptyValueIsPreserved() throws {
-        try keychain.save("", service: testService, account: testAccount)
-        let read = try keychain.read(service: testService, account: testAccount)
+    func test_read_emptyValueIsPreserved() async throws {
+        let read = try await performKeychainOperation { keychain, service, account in
+            try keychain.save("", service: service, account: account)
+            return try keychain.read(service: service, account: account)
+        }
         XCTAssertEqual(read, "")
     }
 
-    func test_save_unicodeValueIsPreserved() throws {
+    func test_save_unicodeValueIsPreserved() async throws {
         let value = "密碼 🔐 \n換行"
-        try keychain.save(value, service: testService, account: testAccount)
-        let read = try keychain.read(service: testService, account: testAccount)
+        let read = try await performKeychainOperation { keychain, service, account in
+            try keychain.save(value, service: service, account: account)
+            return try keychain.read(service: service, account: account)
+        }
         XCTAssertEqual(read, value)
     }
 
     // MARK: - 多個 account 互不干擾
 
-    func test_save_multipleAccountsCoexist() throws {
-        try keychain.save("a-value", service: testService, account: testAccount)
-        try keychain.save("b-value", service: testService, account: "other-account")
-        XCTAssertEqual(try keychain.read(service: testService, account: testAccount), "a-value")
-        XCTAssertEqual(try keychain.read(service: testService, account: "other-account"), "b-value")
+    func test_save_multipleAccountsCoexist() async throws {
+        let values = try await performKeychainOperation { keychain, service, account in
+            try keychain.save("a-value", service: service, account: account)
+            try keychain.save("b-value", service: service, account: "other-account")
+            return (
+                try keychain.read(service: service, account: account),
+                try keychain.read(service: service, account: "other-account")
+            )
+        }
+        XCTAssertEqual(values.0, "a-value")
+        XCTAssertEqual(values.1, "b-value")
     }
 
     // MARK: - Delete
 
-    func test_delete_removesItem() throws {
-        try keychain.save("to-delete", service: testService, account: testAccount)
-        try keychain.delete(service: testService, account: testAccount)
-        let read = try keychain.read(service: testService, account: testAccount)
+    func test_delete_removesItem() async throws {
+        let read = try await performKeychainOperation { keychain, service, account in
+            try keychain.save("to-delete", service: service, account: account)
+            try keychain.delete(service: service, account: account)
+            return try keychain.read(service: service, account: account)
+        }
         XCTAssertNil(read)
     }
 
-    func test_delete_nonExistentDoesNotThrow() throws {
+    func test_delete_nonExistentDoesNotThrow() async throws {
         // 刪除不存在的項目不應拋出錯誤
-        XCTAssertNoThrow(try keychain.delete(service: testService, account: testAccount))
+        try await performKeychainOperation { keychain, service, account in
+            try keychain.delete(service: service, account: account)
+        }
     }
 
     // MARK: - TOCTOU 競態防護(C-5 修復)
@@ -87,7 +110,8 @@ final class KeychainHelperTests: XCTestCase {
     /// 同時 save 同一個 (service, account) 不應產生 duplicateItem 錯誤。
     /// 這是 C-5 修復驗證:即使 SecItemAdd 階段另一執行緒搶先新增,
     /// SecItemUpdate 重試路徑也應回傳成功。
-    func test_concurrentSavesToSameAccount_allSucceed() throws {
+    func test_concurrentSavesToSameAccount_allSucceed() async throws {
+        let final = try await performKeychainOperation { keychain, service, account in
         let iterations = 10
         let group = DispatchGroup()
         let queue = DispatchQueue(label: "test.concurrent", attributes: .concurrent)
@@ -96,7 +120,7 @@ final class KeychainHelperTests: XCTestCase {
             group.enter()
             queue.async {
                 do {
-                    try self.keychain.save("value-\(i)", service: self.testService, account: self.testAccount)
+                    try keychain.save("value-\(i)", service: service, account: account)
                 } catch {
                     XCTFail("並行 save 應不拋出,實際為 \(error)")
                 }
@@ -106,15 +130,17 @@ final class KeychainHelperTests: XCTestCase {
         group.wait()
 
         // 最終值應是某一次寫入的結果
-        let final = try keychain.read(service: testService, account: testAccount)
+            return try keychain.read(service: service, account: account)
+        }
         XCTAssertNotNil(final)
         XCTAssertTrue(final?.hasPrefix("value-") ?? false)
     }
 
     // MARK: - 並發讀寫
 
-    func test_concurrentReadsAndWrites_doNotCrash() throws {
-        try keychain.save("initial", service: testService, account: testAccount)
+    func test_concurrentReadsAndWrites_doNotCrash() async throws {
+        try await performKeychainOperation { keychain, service, account in
+            try keychain.save("initial", service: service, account: account)
 
         let group = DispatchGroup()
         let queue = DispatchQueue(label: "test.mixed", attributes: .concurrent)
@@ -123,14 +149,26 @@ final class KeychainHelperTests: XCTestCase {
             group.enter()
             queue.async {
                 if i % 2 == 0 {
-                    try? self.keychain.save("value-\(i)", service: self.testService, account: self.testAccount)
+                    try? keychain.save("value-\(i)", service: service, account: account)
                 } else {
-                    _ = try? self.keychain.read(service: self.testService, account: self.testAccount)
+                    _ = try? keychain.read(service: service, account: account)
                 }
                 group.leave()
             }
         }
         group.wait()
+        }
+    }
+
+    private func performKeychainOperation<T: Sendable>(
+        _ operation: @escaping @Sendable (KeychainHelper, String, String) throws -> T
+    ) async throws -> T {
+        let keychain = keychain
+        let service = testService
+        let account = testAccount
+        return try await Task.detached(priority: .userInitiated) {
+            try operation(keychain, service, account)
+        }.value
     }
 }
 

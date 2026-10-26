@@ -3,9 +3,9 @@ import Security
 import os
 
 protocol KeychainProtocol {
-    func save(_ value: String, service: String, account: String) throws
-    func read(service: String, account: String) throws -> String?
-    func delete(service: String, account: String) throws
+    nonisolated func save(_ value: String, service: String, account: String) throws
+    nonisolated func read(service: String, account: String) throws -> String?
+    nonisolated func delete(service: String, account: String) throws
 }
 
 enum KeychainError: LocalizedError {
@@ -27,17 +27,17 @@ enum KeychainError: LocalizedError {
 /// 簡單的 Keychain 封裝工具
 final class KeychainHelper: KeychainProtocol, @unchecked Sendable {
     nonisolated static let shared = KeychainHelper()
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "KeychainHelper")
+    nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "VoiceInput", category: "KeychainHelper")
 
     // C-5 修復:序列化 save 流程,避免 SecItemUpdate → SecItemAdd 之間的 TOCTOU 競態。
     // 多執行緒同時 save 同一組 service+account 時,可能 Add 階段另一端先建立,
     // 導致 errSecDuplicateItem 被誤判為 unexpectedStatus。
-    private let saveLock = NSLock()
+    nonisolated private let saveLock = NSLock()
 
     private init() {}
 
     /// 儲存字串到 Keychain（add-or-update 模式 + 序列化保護）
-    func save(_ value: String, service: String, account: String) throws {
+    nonisolated func save(_ value: String, service: String, account: String) throws {
         guard let data = value.data(using: .utf8) else {
             throw KeychainError.encodingFailed
         }
@@ -86,7 +86,7 @@ final class KeychainHelper: KeychainProtocol, @unchecked Sendable {
     }
     
     /// 從 Keychain 讀取字串
-    func read(service: String, account: String) throws -> String? {
+    nonisolated func read(service: String, account: String) throws -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -108,7 +108,7 @@ final class KeychainHelper: KeychainProtocol, @unchecked Sendable {
     }
     
     /// 從 Keychain 刪除資料
-    func delete(service: String, account: String) throws {
+    nonisolated func delete(service: String, account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
